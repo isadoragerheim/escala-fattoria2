@@ -452,20 +452,29 @@ function ShareExport({ state, weekId }: ShareExportProps){
 }
 
 function ClearTab({weekId, onClearLocal}:{weekId:string; onClearLocal:()=>void}){
-  const clearAll = async ()=>{
-    onClearLocal();
-    if(SYNC_ENDPOINT && weekId){
-      try{ await fetch(SYNC_ENDPOINT, {
-  method: 'POST',
-  mode: 'no-cors',
-  headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-  body: JSON.stringify({ action:'clear', weekId })
-});
-alert('Respostas da semana limpas.');;
-  return (
-    <div className="flex items-center justify-between">
-      <div className="text-sm text-gray-600">Use este botão no início de cada semana para zerar as respostas. Semana atual: <b>{weekId||'-'}</b></div>
-      <button onClick={clearAll} className="btn btn-primary">Limpar</button>
-    </div>
-  );
+  const clearAll = async () => {
+  onClearLocal();
+  if (SYNC_ENDPOINT && weekId) {
+    try {
+      const resp = await fetch(SYNC_ENDPOINT, {
+        method: 'POST',
+        mode: 'no-cors',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({ action:'clear', weekId })
+      });
+      // Em no-cors trate como sucesso
+      // @ts-ignore
+      if ((resp as any)?.type === 'opaque' || resp.status === 0) {
+        alert('Respostas da semana limpas.');
+        return;
+      }
+      if (!resp.ok) {
+        const txt = await resp.text().catch(()=> "");
+        alert(`Falha ao limpar (HTTP ${resp.status}). ${txt.slice(0,180)}`);
+        return;
+      }
+    } catch { /* sem rede: já limpamos localmente */ }
+  }
+  alert('Respostas da semana limpas.');
+};
 }
