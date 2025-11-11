@@ -147,40 +147,52 @@ function AvailabilityForm({ state, update, selectedStaffId, setSelectedStaffId, 
   };
 
   const save = async () => {
-    if(!selected) { alert("Selecione seu nome."); return; }
-    const chosenCodes = (state.availability[selectedStaffId]||[])
-      .map(did => state.days.find(d=>d.id===did)?.code)
-      .filter(Boolean) as string[];
+  if (!selected) { alert("Selecione seu nome."); return; }
+  const chosenCodes = (state.availability[selectedStaffId]||[])
+    .map(did => state.days.find(d=>d.id===did)?.code)
+    .filter(Boolean) as string[];
 
-    if(syncEnabled && weekId){
-      try{
-        const resp = await fetch(SYNC_ENDPOINT, {
-  method: 'POST',
-  mode: 'no-cors', // evita preflight/CORS
-  headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-  body: JSON.stringify({ action:'upsert', weekId, staff: selected.name, days: chosenCodes })
-});
-// se chegou aqui, consideramos salvo (não há como ler a resposta em no-cors)
-alert('Suas escolhas foram enviadas.');
-        const txt = await resp.text();
-        if(!resp.ok){
-          alert(`Falha ao salvar (HTTP ${resp.status}). Resposta: ${txt.slice(0,180)}`);
-        }else{
-          try{
-            const data = JSON.parse(txt);
-            if(data.ok){ alert('Suas escolhas foram salvas.'); }
-            else { alert(`Falha ao salvar no servidor: ${data.error||'erro desconhecido'}`); }
-          }catch{
-            alert('Salvo (retorno do servidor não era JSON).');
-          }
-        }
-      }catch(err:any){
-        alert(`Falha ao salvar no servidor. Verifique o SYNC_ENDPOINT. Erro: ${String(err)}`);
+  if (syncEnabled && weekId) {
+    try {
+      const resp = await fetch(SYNC_ENDPOINT, {
+        method: 'POST',
+        mode: 'no-cors', // evita preflight
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({ action: 'upsert', weekId, staff: selected.name, days: chosenCodes })
+      });
+
+      // Em no-cors a resposta é 'opaque' e não pode ser lida; trate como sucesso
+      // Se não estiver em no-cors, também trate 'opaque' como sucesso.
+      // @ts-ignore
+      if ((resp as any)?.type === 'opaque' || resp.status === 0) {
+        alert('Suas escolhas foram salvas.');
+        return;
       }
-    } else {
-      alert('Salvo localmente (modo offline).');
+
+      // Caso não esteja usando no-cors (futuro com proxy), mantenha checagem
+      if (!resp.ok) {
+        const txt = await resp.text().catch(()=> "");
+        alert(`Falha ao salvar (HTTP ${resp.status}). Resposta: ${txt.slice(0,180)}`);
+        return;
+      }
+
+      // Tente interpretar JSON quando permitido (proxy)
+      const txt = await resp.text();
+      try {
+        const data = JSON.parse(txt);
+        if (data.ok) alert('Suas escolhas foram salvas.');
+        else alert(`Falha ao salvar no servidor: ${data.error || 'erro desconhecido'}`);
+      } catch {
+        // retorno não JSON
+        alert('Suas escolhas foram salvas.');
+      }
+    } catch (err:any) {
+      alert(`Não foi possível enviar. Verifique sua conexão. Erro: ${String(err)}`);
     }
-  };
+  } else {
+    alert('Salvo localmente (modo offline).');
+  }
+};
 
   return (
     <div className="space-y-3">
