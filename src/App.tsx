@@ -208,7 +208,7 @@ function AvailabilityForm({ state, update, selectedStaffId, setSelectedStaffId, 
 type SolveResult = { ok:boolean; assignments: Record<string,string[]>; messages:string[] };
 
 function solve(state:State): SolveResult {
-  const messages:string[] = [];
+  
   const assignments: Record<string,string[]> = {};
 
   const staffById = Object.fromEntries(state.staff.map(s=>[s.id, s] as const));
@@ -329,15 +329,17 @@ function solve(state:State): SolveResult {
   }
 
   const ok = state.days.every(d=> (assignments[d.id]||[]).length===d.required);
-  const messages:string[] = [];
-  for(const d of state.days){
-    const avail = (availPerDay[d.id]||[]).length;
-    if(avail < d.required) messages.push(`ℹ️ ${d.label}: só ${avail} disponíveis para ${d.required} vagas.`);
-    const names = (assignments[d.id]||[]).map(sid=> state.staff.find(s=>s.id===sid)?.name || sid).filter(Boolean).join(", ");
-    messages.push(names?`✅ ${d.label}: ${names}`:`❌ ${d.label}: não preenchido`);
-  }
-  return { ok, assignments, messages };
+  
+  for (const d of state.days) {
+  const avail = (availPerDay[d.id]||[]).length;
+  if (avail < d.required) messages.push(`ℹ️ ${d.label}: só ${avail} disponíveis para ${d.required} vagas.`);
+  const names = (assignments[d.id]||[])
+    .map(sid => state.staff.find(s=>s.id===sid)?.name || sid)
+    .filter(Boolean)
+    .join(", ");
+  messages.push(names ? `✅ ${d.label}: ${names}` : `❌ ${d.label}: não preenchido`);
 }
+return { ok, assignments, messages };
 
 function SolverUI({ state }: SolverUIProps){
   const res = useMemo(()=> solve(state), [state]);
