@@ -443,10 +443,13 @@ function ClearTab({weekId, onClearLocal}:{weekId:string; onClearLocal:()=>void})
   const clearAll = async ()=>{
     onClearLocal();
     if(SYNC_ENDPOINT && weekId){
-      try{ await fetch(SYNC_ENDPOINT, { method:'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ action:'clear', weekId }) }); }catch{}
-    }
-    alert('Respostas da semana limpas.');
-  };
+      try{ await fetch(SYNC_ENDPOINT, {
+  method: 'POST',
+  mode: 'no-cors',
+  headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+  body: JSON.stringify({ action:'clear', weekId })
+});
+alert('Respostas da semana limpas.');;
   return (
     <div className="flex items-center justify-between">
       <div className="text-sm text-gray-600">Use este botão no início de cada semana para zerar as respostas. Semana atual: <b>{weekId||'-'}</b></div>
