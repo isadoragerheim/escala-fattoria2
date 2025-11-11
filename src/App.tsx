@@ -156,7 +156,7 @@ function AvailabilityForm({ state, update, selectedStaffId, setSelectedStaffId, 
       try{
         const resp = await fetch(SYNC_ENDPOINT, {
           method: 'POST',
-          headers: {'Content-Type':'application/json'},
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
           body: JSON.stringify({ action:'upsert', weekId, staff: selected.name, days: chosenCodes })
         });
         const txt = await resp.text();
@@ -208,15 +208,18 @@ function AvailabilityForm({ state, update, selectedStaffId, setSelectedStaffId, 
 type SolveResult = { ok:boolean; assignments: Record<string,string[]>; messages:string[] };
 
 function solve(state:State): SolveResult {
-  
-  const assignments: Record<string,string[]> = {};
+  const messages: string[] = [];
+  const assignments: Record<string,string[]> = {}; // dayId -> staffIds
 
   const staffById = Object.fromEntries(state.staff.map(s=>[s.id, s] as const));
   const nameOf = (sid:string)=> staffById[sid]?.name || "";
 
+  // disponibilidade por dia (ids de staff)
   const availPerDay: Record<string, string[]> = Object.fromEntries(
     state.days.map(d=>{
-      const avail = state.staff.filter(s=> (state.availability[s.id]||[]).includes(d.id)).map(s=>s.id);
+      const avail = state.staff
+        .filter(s=> (state.availability[s.id]||[]).includes(d.id))
+        .map(s=>s.id);
       return [d.id, avail];
     })
   );
@@ -225,29 +228,31 @@ function solve(state:State): SolveResult {
   const neverPairs = state.rules.filter(r=>r.kind==="never").map(r=>[r.a,r.b] as [string,string]);
 
   const checkSet = (set:string[])=>{
-    for(const [a,b] of neverPairs){ if(set.includes(a) && set.includes(b)) return false; }
-    for(const [a,b] of mustPairs){ const ia=set.includes(a), ib=set.includes(b); if(ia!==ib) return false; }
+    for (const [a,b] of neverPairs) { if (set.includes(a) && set.includes(b)) return false; }
+    for (const [a,b] of mustPairs)  { const ia=set.includes(a), ib=set.includes(b); if (ia!==ib) return false; }
     return true;
   };
 
   const PRIORITY_STAR = new Set(["Marina","Lauren"]);
-  const AVOID_SINGLE = new Set(["Leo","Ana","Mariana"]);
-  const LOW_LAST = new Set(["Duda","Dani"]);
+  const AVOID_SINGLE  = new Set(["Leo","Ana","Mariana"]);
+  const LOW_LAST      = new Set(["Duda","Dani"]); // últimas prioridades
 
-  for(const day of state.days){
+  for (const day of state.days) {
     const pool = [...(availPerDay[day.id]||[])];
+
+    // scoring
     const score: Record<string, number> = {};
-    for(const sid of pool){
+    for (const sid of pool){
       const n = nameOf(sid);
       let sc = 0;
       const mustC = mustPairs.filter(([a,b])=> a===sid || b===sid).length;
-      const nevC = neverPairs.filter(([a,b])=> a===sid || b===sid).length;
+      const nevC  = neverPairs.filter(([a,b])=> a===sid || b===sid).length;
       sc += mustC*2 + nevC;
-      if(PRIORITY_STAR.has(n)) sc += 5;
-      if(day.code==="sab" && n==="Gabi") sc += 6;
-      if(day.required===1 && AVOID_SINGLE.has(n)) sc -= 4;
-      if(day.required===1 && n==="Ana") sc += 0.5;
-      if(LOW_LAST.has(n)) sc -= 1000;
+      if (PRIORITY_STAR.has(n)) sc += 5;
+      if (day.code==="sab" && n==="Gabi") sc += 6;
+      if (day.required===1 && AVOID_SINGLE.has(n)) sc -= 4;
+      if (day.required===1 && n==="Ana") sc += 0.5;
+      if (LOW_LAST.has(n)) sc -= 1000;
       score[sid] = sc;
     }
     pool.sort((u,v)=> (score[v]??0)-(score[u]??0));
@@ -255,50 +260,53 @@ function solve(state:State): SolveResult {
     const target = day.required;
     let found: string[] | null = null;
 
-    const parent:Record<string,string> = {}; for(const s of pool) parent[s]=s;
-    const findp = (x:string):string => parent[x]===x?x:(parent[x]=findp(parent[x]));
-    const unite = (x:string,y:string)=>{ x=findp(x); y=findp(y); if(x!==y) parent[y]=x; };
-    for(const [a,b] of mustPairs){ if(pool.includes(a) && pool.includes(b)) unite(a,b); }
-    const groups:Record<string,string[]> = {}; for(const s of pool){ const p=findp(s); (groups[p]??=[]).push(s); }
+    // agrupar pares "must"
+    const parent:Record<string,string> = {}; for (const s of pool) parent[s]=s;
+    const findp = (x:string):string => parent[x]===x ? x : (parent[x]=findp(parent[x]));
+    const unite = (x:string,y:string)=>{ x=findp(x); y=findp(y); if (x!==y) parent[y]=x; };
+    for (const [a,b] of mustPairs){ if (pool.includes(a) && pool.includes(b)) unite(a,b); }
+    const groups:Record<string,string[]> = {}; for (const s of pool){ const p=findp(s); (groups[p]??=[]).push(s); }
 
     function backtrack(idx:number, chosen:string[]) {
-      if(found) return;
-      if(chosen.length>target) return;
-      if(idx>=pool.length){ if(chosen.length===target && checkSet(chosen)) found=[...chosen]; return; }
-      const remaining = target - chosen.length; if(remaining>(pool.length-idx)) return;
+      if (found) return;
+      if (chosen.length>target) return;
+      if (idx>=pool.length) { if (chosen.length===target && checkSet(chosen)) found=[...chosen]; return; }
+      const remaining = target - chosen.length; if (remaining>(pool.length-idx)) return;
+
       const s = pool[idx];
-      const g = groups[findp(s)]||[s];
+      const g = groups[findp(s)] || [s];
+
       const includeSet = Array.from(new Set([...chosen, ...g]));
-      if(includeSet.length<=target && checkSet(includeSet)) backtrack(idx+1, includeSet);
+      if (includeSet.length<=target && checkSet(includeSet)) backtrack(idx+1, includeSet);
       backtrack(idx+1, chosen);
     }
     backtrack(0, []);
 
-    if(day.required===1){
+    // Regras especiais para dias com 1 pessoa (preferências)
+    if (day.required===1) {
       const namesInPool = new Set(pool.map(nameOf));
       const hasStar = namesInPool.has("Marina") || namesInPool.has("Lauren");
-      if(!hasStar){
+      if (!hasStar){
         const idByName = (nm:string)=> pool.find(sid=> nameOf(sid)===nm);
-        if(namesInPool.has("Ana") && namesInPool.has("Mariana")){
-          const ana = idByName("Ana"); if(ana) found = [ana];
-        } else if(namesInPool.has("Leo") && !found){
-          const leo = idByName("Leo"); if(leo) found = [leo];
-        } else if(namesInPool.has("Mariana") && !found){
-          const mar = idByName("Mariana"); if(mar) found = [mar];
+        if (namesInPool.has("Ana") && namesInPool.has("Mariana")) {
+          const ana = idByName("Ana"); if (ana) found = [ana];
+        } else if (namesInPool.has("Leo") && !found) {
+          const leo = idByName("Leo"); if (leo) found = [leo];
+        } else if (namesInPool.has("Mariana") && !found) {
+          const mar = idByName("Mariana"); if (mar) found = [mar];
         }
       }
     }
 
-    if(found){
-      for(const sid of [...found]){
+    // Tentar substituir Duda/Dani por outra pessoa quando possível
+    if (found){
+      for (const sid of [...found]){
         const n = nameOf(sid);
-        if(!LOW_LAST.has(n)) continue;
+        if (!LOW_LAST.has(n)) continue;
         const candidate = pool.find(x=> !LOW_LAST.has(nameOf(x)) && !found!.includes(x));
-        if(candidate){
+        if (candidate){
           const trial: string[] = [...found.filter(z=>z!==sid), candidate];
-          if(trial.length===target && checkSet(trial)){
-            found = trial;
-          }
+          if (trial.length===target && checkSet(trial)) found = trial;
         }
       }
     }
@@ -306,22 +314,27 @@ function solve(state:State): SolveResult {
     assignments[day.id] = found ? found : [];
   }
 
+  // Preferência: evitar mesma pessoa em Domingo Almoço e Noite (exceto Gabi)
   const dayLunch = state.days.find(d=>d.code==="dom_almoco");
   const dayNight = state.days.find(d=>d.code==="dom_noite");
-  if(dayLunch && dayNight){
+  if (dayLunch && dayNight) {
     const A = new Set(assignments[dayLunch.id]||[]);
     const B = new Set(assignments[dayNight.id]||[]);
-    for(const sid of Array.from(A)){
-      const n = state.staff.find(s=>s.id===sid)?.name || "";
-      if(n==="Gabi") continue;
-      if(B.has(sid)){
+    for (const sid of Array.from(A)) {
+      const n = nameOf(sid);
+      if (n==="Gabi") continue; // exceção
+      if (B.has(sid)) {
         const poolNight = (availPerDay[dayNight.id]||[]).filter(x=> !B.has(x));
         const candidate = poolNight.find(x=>{
-          const test = Array.from(new Set([ ...assignments[dayNight.id], x ])).filter(z=> z!==sid).slice(0, dayNight.required);
+          const test = Array.from(new Set([ ...assignments[dayNight.id], x ]))
+            .filter(z=> z!==sid)
+            .slice(0, dayNight.required);
           return test.length===dayNight.required;
         });
-        if(candidate){
-          assignments[dayNight.id] = Array.from(new Set([ ...assignments[dayNight.id], candidate ])).filter(z=> z!==sid).slice(0, dayNight.required);
+        if (candidate) {
+          assignments[dayNight.id] = Array.from(new Set([ ...assignments[dayNight.id], candidate ]))
+            .filter(z=> z!==sid)
+            .slice(0, dayNight.required);
           B.delete(sid);
         }
       }
@@ -329,17 +342,21 @@ function solve(state:State): SolveResult {
   }
 
   const ok = state.days.every(d=> (assignments[d.id]||[]).length===d.required);
-  
+
+  // mensagens finais (usar o MESMO array messages – não redeclarar)
   for (const d of state.days) {
-  const avail = (availPerDay[d.id]||[]).length;
-  if (avail < d.required) messages.push(`ℹ️ ${d.label}: só ${avail} disponíveis para ${d.required} vagas.`);
-  const names = (assignments[d.id]||[])
-    .map(sid => state.staff.find(s=>s.id===sid)?.name || sid)
-    .filter(Boolean)
-    .join(", ");
-  messages.push(names ? `✅ ${d.label}: ${names}` : `❌ ${d.label}: não preenchido`);
+    const avail = (availPerDay[d.id]||[]).length;
+    if (avail < d.required) messages.push(`ℹ️ ${d.label}: só ${avail} disponíveis para ${d.required} vagas.`);
+    const names = (assignments[d.id]||[])
+      .map(sid=> state.staff.find(s=>s.id===sid)?.name || sid)
+      .filter(Boolean)
+      .join(", ");
+    messages.push(names ? `✅ ${d.label}: ${names}` : `❌ ${d.label}: não preenchido`);
+  }
+
+  return { ok, assignments, messages };
 }
-return { ok, assignments, messages };
+
 
 function SolverUI({ state }: SolverUIProps){
   const res = useMemo(()=> solve(state), [state]);
@@ -423,7 +440,7 @@ function ClearTab({weekId, onClearLocal}:{weekId:string; onClearLocal:()=>void})
   const clearAll = async ()=>{
     onClearLocal();
     if(SYNC_ENDPOINT && weekId){
-      try{ await fetch(SYNC_ENDPOINT, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'clear', weekId }) }); }catch{}
+      try{ await fetch(SYNC_ENDPOINT, { method:'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ action:'clear', weekId }) }); }catch{}
     }
     alert('Respostas da semana limpas.');
   };
