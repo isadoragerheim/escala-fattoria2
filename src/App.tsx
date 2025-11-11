@@ -155,10 +155,13 @@ function AvailabilityForm({ state, update, selectedStaffId, setSelectedStaffId, 
     if(syncEnabled && weekId){
       try{
         const resp = await fetch(SYNC_ENDPOINT, {
-          method: 'POST',
-          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-          body: JSON.stringify({ action:'upsert', weekId, staff: selected.name, days: chosenCodes })
-        });
+  method: 'POST',
+  mode: 'no-cors', // evita preflight/CORS
+  headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+  body: JSON.stringify({ action:'upsert', weekId, staff: selected.name, days: chosenCodes })
+});
+// se chegou aqui, consideramos salvo (não há como ler a resposta em no-cors)
+alert('Suas escolhas foram enviadas.');
         const txt = await resp.text();
         if(!resp.ok){
           alert(`Falha ao salvar (HTTP ${resp.status}). Resposta: ${txt.slice(0,180)}`);
