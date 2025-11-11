@@ -19,7 +19,7 @@ interface AvailabilityFormProps {
 }
 
 const LS_KEY = "escala_fattoria_state_v3";
-const SYNC_ENDPOINT = ""; // COLE AQUI sua URL /exec do Apps Script
+const SYNC_ENDPOINT = "https://script.google.com/macros/s/AKfycbwQsmqSOmALernF48mfjTR6CGTdf9ycC-6g2AdexUcpA9Px-WxkYcfviUDTzo2WOEbFzw/exec"; // COLE AQUI sua URL /exec do Apps Script
 
 function id() { return Math.random().toString(36).slice(2, 10); }
 function byName(state: State, staffId: string) { return state.staff.find(s=>s.id===staffId)?.name || ""; }
