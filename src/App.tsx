@@ -1,6 +1,7 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { Trash2, Calendar as Cal, RefreshCw, ClipboardList, Share2, Copy } from "lucide-react";
+import { toJpeg } from "html-to-image";
 
 type Staff = { id: string; name: string };
 type Day = { id: string; label: string; required: number; code: string };
@@ -15,6 +16,7 @@ interface SolverUIProps {
   state: State;
   availability: Availability;          // disponibilidade vinda do servidor (ou local se vazio)
   onRefresh: () => void;               // recarregar respostas do servidor
+  weekId: string;                      // para título/exportação
 }
 interface AvailabilityFormProps {
   state: State; update: (p: Partial<State>) => void;
@@ -64,11 +66,9 @@ function sortByPriorityForDay(names: string[], dayCode: string): string[] {
     const i = base.indexOf(nm);
     return i >= 0 ? i : 999; // quem não está explicitamente na lista vem depois
   };
-  // estáveis: não quebrar ordem relativa de empate
   return [...names].sort((a,b)=>{
     const ra = rank(a), rb = rank(b);
     if (ra !== rb) return ra - rb;
-    // empate: ordem alfabética só para estabilizar
     return a.localeCompare(b, 'pt-BR');
   });
 }
@@ -164,7 +164,7 @@ export default function App(){
 
         {activeTab==="escalar" && (
           <Card title="Escalar" icon={<Cal className="w-5 h-5"/>}>
-            <SolverUI state={state} availability={availabilityForSolver} onRefresh={refreshServer} />
+            <SolverUI state={state} availability={availabilityForSolver} onRefresh={refreshServer} weekId={weekIdDash}/>
           </Card>
         )}
 
@@ -289,12 +289,12 @@ type SolveResult = {
   ok:boolean;
   assignments: Record<string,string[]>;
   messages:string[];
-  availSorted: Record<string,string[]>; // disponíveis (ordenados) por diaId
+  availSorted: Record<string,string[]>; // disponíveis (ordenados) por diaId (ids)
 };
 
 function solve(state:State, availability: Availability): SolveResult {
   const messages: string[] = [];
-  const assignments: Record<string,string[]> = {}; // dayId -> staffIds
+  const assignments: Record<string,string[]> = {};
   const availSorted: Record<string,string[]> = {};
 
   const staffById = Object.fromEntries(state.staff.map(s=>[s.id, s] as const));
@@ -310,19 +310,16 @@ function solve(state:State, availability: Availability): SolveResult {
     })
   );
 
-  // --- montar lista de disponíveis ordenados por prioridade (por NOME) ---
+  // montar lista de disponíveis ordenados por prioridade
   for (const day of state.days) {
     const names = (availPerDayIds[day.id] || []).map(nameOf);
-    // Domingo: sempre incluir Gabi (se disponível) na lista (ela aparece junto, mas não conta no required)
     const ordered = sortByPriorityForDay(names, day.code);
-    availSorted[day.id] = ordered.map(nm => {
-      // voltar para id (mantendo nomes únicos do cadastro)
-      const sid = state.staff.find(s=>s.name===nm)?.id || "";
-      return sid;
-    }).filter(Boolean);
+    // voltar de nome -> id
+    const idsOrdered = ordered.map(nm => state.staff.find(s=>s.name===nm)?.id || "").filter(Boolean);
+    availSorted[day.id] = idsOrdered;
   }
 
-  // --- proposição automática (sugestão) ---
+  // sugestão automática
   for (const day of state.days) {
     const poolIds = availSorted[day.id] || [];
     const poolNames = poolIds.map(nameOf);
@@ -333,26 +330,20 @@ function solve(state:State, availability: Availability): SolveResult {
     // DOMINGOS: incluir Gabi SEM CONTAR no requerido
     if ((day.code==="dom_almoco" || day.code==="dom_noite") && poolNames.includes("Gabi")) {
       const gid = state.staff.find(s=>s.name==="Gabi")!.id;
-      // a Gabi não entra no count, mas adicionamos ao conjunto final (marcada como extra na UI)
       chosen.push(gid);
     }
 
-    // agora preencher vagas restantes pela prioridade do dia
     for (const sid of poolIds) {
       const nm = nameOf(sid);
-      if (nm==="Gabi" && (day.code==="dom_almoco" || day.code==="dom_noite")) {
-        // Gabi já tratada como extra — não ocupa vaga
-        continue;
-      }
+      if (nm==="Gabi" && (day.code==="dom_almoco" || day.code==="dom_noite")) continue; // Gabi já extra
       if (chosen.includes(sid)) continue;
       if (chosen.filter(x=> nameOf(x)!=="Gabi").length < target) {
         chosen.push(sid);
       }
     }
 
-    // cortar eventuais sobras (apenas não-Gabi contam pro corte)
     const nonGabi = chosen.filter(x=> nameOf(x)!=="Gabi").slice(0, target);
-    const final = (chosen.includes(state.staff.find(s=>s.name==="Gabi")?.id || ""))
+    const final = (chosen.find(x=> nameOf(x)==="Gabi"))
       ? Array.from(new Set([state.staff.find(s=>s.name==="Gabi")!.id, ...nonGabi]))
       : nonGabi;
 
@@ -361,7 +352,6 @@ function solve(state:State, availability: Availability): SolveResult {
 
   const ok = state.days.every(d=> (assignments[d.id]||[]).filter(x=> state.staff.find(s=>s.id===x)?.name!=="Gabi").length===d.required);
 
-  // Mensagens (não serão exibidas na UI, mas mantemos para depuração/uso futuro)
   for (const d of state.days) {
     const avail = (availSorted[d.id]||[]).length;
     const namesAvail = (availSorted[d.id]||[]).map(id=> state.staff.find(s=>s.id===id)?.name || id).join(", ");
@@ -372,7 +362,7 @@ function solve(state:State, availability: Availability): SolveResult {
   return { ok, assignments, messages, availSorted };
 }
 
-function SolverUI({ state, availability, onRefresh }: SolverUIProps){
+function SolverUI({ state, availability, onRefresh, weekId }: SolverUIProps){
   const res = useMemo(()=> solve(state, availability), [state, availability]);
   const { assignments, availSorted } = res;
 
@@ -386,8 +376,7 @@ function SolverUI({ state, availability, onRefresh }: SolverUIProps){
   const [confirm, setConfirm] = useState<Record<string, string[]>>(()=> {
     const init: Record<string,string[]> = {};
     for (const d of state.days) {
-      const sugg = (assignments[d.id]||[]).filter(x=> state.staff.find(s=>s.id===x)?.name!=="Gabi"); // não contar Gabi nos slots
-      // tamanho exatamente = required (preenche com vazio se faltar)
+      const sugg = (assignments[d.id]||[]).filter(x=> state.staff.find(s=>s.id===x)?.name!=="Gabi");
       const target = d.required;
       const arr = Array.from({length: target}, (_,i)=> sugg[i] || "");
       init[d.id] = arr;
@@ -396,7 +385,6 @@ function SolverUI({ state, availability, onRefresh }: SolverUIProps){
   });
 
   useEffect(()=> {
-    // quando availability mudar, refaz sugestão
     const init: Record<string,string[]> = {};
     for (const d of state.days) {
       const sugg = (assignments[d.id]||[]).filter(x=> state.staff.find(s=>s.id===x)?.name!=="Gabi");
@@ -415,14 +403,12 @@ function SolverUI({ state, availability, onRefresh }: SolverUIProps){
     });
   };
 
-  // helpers de UI
   const labelOf = (sid:string) => state.staff.find(s=>s.id===sid)?.name || "";
 
   // lista de disponíveis (ordenados) por nome (para exibir)
   const availNamesByDay: Record<string,string[]> = Object.fromEntries(
     state.days.map(d=>{
       const arr = (availSorted[d.id]||[]).map(labelOf);
-      // Em domingos, Gabi aparece na lista visual também (sem problemas)
       return [d.id, arr];
     })
   );
@@ -432,7 +418,7 @@ function SolverUI({ state, availability, onRefresh }: SolverUIProps){
     state.days.map(d=>{
       const ids = (availSorted[d.id]||[]).filter(sid=>{
         const nm = labelOf(sid);
-        if ((d.code==="dom_almoco" || d.code==="dom_noite") && nm==="Gabi") return false; // Gabi não ocupa slot
+        if ((d.code==="dom_almoco" || d.code==="dom_noite") && nm==="Gabi") return false;
         return true;
       });
       return [d.id, ids.map(sid=> ({ id:sid, name: labelOf(sid) }))];
@@ -442,6 +428,42 @@ function SolverUI({ state, availability, onRefresh }: SolverUIProps){
   const hasGabi = (dayId:string) => {
     const nm = (assignments[dayId]||[]).map(labelOf);
     return nm.includes("Gabi");
+  };
+
+  // ===== Exportação bonita (cartaz) =====
+  const exportRef = useRef<HTMLDivElement>(null);
+  const exportRows = state.days.map(d => {
+    const selected = (confirm[d.id] || []).filter(Boolean);
+    const selectedNames = selected.map(labelOf);
+    const isDom = d.code==="dom_almoco" || d.code==="dom_noite";
+    const availIds = (availSorted[d.id] || []);
+    const hasGabiAvail = isDom && availIds.some(id => labelOf(id) === "Gabi");
+    const extras = hasGabiAvail ? ["Gabi"] : [];
+    return { label: d.label, required: d.required, escalados: selectedNames, extras };
+  });
+
+  const downloadJpg = async () => {
+    const node = exportRef.current;
+    if (!node) return;
+    try {
+      const dataUrl = await toJpeg(node, {
+        quality: 0.95,
+        pixelRatio: 2,
+        backgroundColor: "#ffffff",
+      });
+      const a = document.createElement("a");
+      const ddmmyyyy = (weekId || "").split("-").join("/");
+      a.href = dataUrl;
+      a.download = `Escalacao-Fattoria-${ddmmyyyy || "semana"}.jpg`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+      if (isIOS) window.open(dataUrl, "_blank");
+    } catch (e) {
+      alert("Não foi possível gerar o JPG. Tente novamente.");
+      console.error(e);
+    }
   };
 
   return (
@@ -467,7 +489,7 @@ function SolverUI({ state, availability, onRefresh }: SolverUIProps){
         )}
       </div>
 
-      {/* Tabela de DISPONÍVEIS (ordenados por prioridade) */}
+      {/* Tabela de DISPONÍVEIS */}
       <div className="overflow-auto">
         <table className="min-w-full border text-sm">
           <thead className="bg-gray-100">
@@ -497,7 +519,13 @@ function SolverUI({ state, availability, onRefresh }: SolverUIProps){
         </table>
       </div>
 
-      {/* Tabela de CONFIRMAÇÃO da escala (comboboxes) */}
+      {/* Cabeçalho + botão do JPG */}
+      <div className="flex items-center justify-between">
+        <h3 className="font-semibold text-base">Escalação (confirme abaixo)</h3>
+        <button onClick={downloadJpg} className="btn btn-primary text-sm">Baixar JPG (bonito)</button>
+      </div>
+
+      {/* Tabela de CONFIRMAÇÃO */}
       <div className="overflow-auto">
         <table className="min-w-full border text-sm">
           <thead className="bg-gray-100">
@@ -540,6 +568,16 @@ function SolverUI({ state, availability, onRefresh }: SolverUIProps){
         </table>
       </div>
 
+      {/* CARTAZ INVISÍVEL PARA EXPORTAR COMO JPG */}
+      <div ref={exportRef} style={{ position: "fixed", left: -99999, top: -99999, width: 1000 }}>
+        <ExportPoster weekId={weekId} rows={state.days.map(d=>{
+          const selected = (confirm[d.id] || []).filter(Boolean).map(id=> state.staff.find(s=>s.id===id)?.name || id);
+          const isDom = d.code==="dom_almoco" || d.code==="dom_noite";
+          const hasGabiAvail = isDom && (availSorted[d.id]||[]).some(id=> (state.staff.find(s=>s.id===id)?.name)==="Gabi");
+          const extras = hasGabiAvail ? ["Gabi"] : [];
+          return { label: d.label, required: d.required, escalados: selected, extras };
+        })}/>
+      </div>
     </div>
   );
 }
@@ -570,10 +608,7 @@ function ClearTab({
   onClearLocal: () => void;
 }) {
   const clearAll = async () => {
-    // limpa local
     onClearLocal();
-
-    // tenta limpar no servidor (modo no-cors para não dar preflight)
     if (SYNC_ENDPOINT && weekId) {
       try {
         const resp = await fetch(SYNC_ENDPOINT, {
@@ -582,7 +617,6 @@ function ClearTab({
           headers: { "Content-Type": "text/plain;charset=utf-8" },
           body: JSON.stringify({ action: "clear", weekId }),
         });
-        // Em no-cors a resposta é 'opaque' (status 0); trate como sucesso e não leia o body
         // @ts-ignore
         if ((resp as any)?.type === "opaque" || (resp as any)?.status === 0) {
           alert("Respostas da semana limpas.");
@@ -593,9 +627,7 @@ function ClearTab({
           alert(`Falha ao limpar (HTTP ${resp.status}). ${txt.slice(0, 180)}`);
           return;
         }
-      } catch {
-        // sem rede: já limpamos localmente
-      }
+      } catch {}
     }
     alert("Respostas da semana limpas.");
   };
@@ -609,6 +641,57 @@ function ClearTab({
       <button onClick={clearAll} className="btn btn-primary">
         Limpar
       </button>
+    </div>
+  );
+}
+
+/** ---------- Poster bonito para exportação ---------- */
+function ExportPoster({
+  weekId,
+  rows,
+}: {
+  weekId: string;
+  rows: { label: string; required: number; escalados: string[]; extras: string[] }[];
+}) {
+  const titleDate = (weekId || "").split("-").join("/"); // DD-MM-YYYY -> DD/MM/YYYY
+
+  return (
+    <div className="bg-white text-gray-900 p-8" style={{ fontFamily: "ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto" }}>
+      {/* Cabeçalho */}
+      <div className="text-center mb-6">
+        <div className="text-2xl font-bold">Escalação Fattoria</div>
+        <div className="text-sm text-gray-600">Semana {titleDate || "-"}</div>
+      </div>
+
+      {/* Tabela bonita */}
+      <table className="w-full text-sm border border-gray-300 rounded-xl overflow-hidden" style={{ borderCollapse: "separate", borderSpacing: 0 }}>
+        <thead className="bg-gray-100">
+          <tr>
+            <th className="text-left px-4 py-3 border-b border-gray-300">Dia/Turno</th>
+            <th className="text-left px-4 py-3 border-b border-gray-300">Escalação</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r, i) => {
+            const zebra = i % 2 === 1 ? "bg-gray-50" : "bg-white";
+            const escala = r.escalados.length ? r.escalados.join(", ") : "—";
+            const extras = r.extras.length ? `  • Extras: ${r.extras.join(", ")}` : "";
+            return (
+              <tr key={i} className={zebra}>
+                <td className="px-4 py-3 align-top border-t border-gray-200">{r.label}</td>
+                <td className="px-4 py-3 align-top border-t border-gray-200">
+                  {escala}
+                  {extras && <span className="text-gray-600">{extras}</span>}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+
+      <div className="text-[11px] text-gray-500 mt-4">
+        Geração automática • Preferências e prioridades aplicadas • Gabi extra aos domingos quando disponível
+      </div>
     </div>
   );
 }
