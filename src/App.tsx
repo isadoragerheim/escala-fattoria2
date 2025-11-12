@@ -6,20 +6,24 @@ type Staff = { id: string; name: string };
 type Day = { id: string; label: string; required: number; code: string };
 type Rule = { id: string; a: string; b: string; kind: "must" | "never" };
 type Availability = Record<string, string[]>;
-type State = { staff: Staff[]; days: Day[]; rules: Rule[]; availability: Availability; };
+type State = { staff: Staff[]; days: Day[]; rules: Rule[]; availability: Availability };
 
 interface TabButtonProps { label: string; active: boolean; onClick: () => void; icon: React.ReactNode }
 interface CardProps { title: string; icon: React.ReactNode; children: React.ReactNode }
 interface ShareExportProps { state: State; weekId: string }
-interface SolverUIProps { state: State }
+interface SolverUIProps {
+  state: State;
+  availability: Availability;          // disponibilidade vinda do servidor (ou local se vazio)
+  onRefresh: () => void;               // recarregar respostas do servidor
+}
 interface AvailabilityFormProps {
   state: State; update: (p: Partial<State>) => void;
   selectedStaffId: string; setSelectedStaffId: (id: string) => void;
-  weekId: string; syncEnabled: boolean;
+  weekId: string; syncEnabled: boolean; onSaved?: () => void;
 }
 
-const LS_KEY = "escala_fattoria_state_v3";
-const SYNC_ENDPOINT = "https://script.google.com/macros/s/AKfycbwQsmqSOmALernF48mfjTR6CGTdf9ycC-6g2AdexUcpA9Px-WxkYcfviUDTzo2WOEbFzw/exec"; // COLE AQUI sua URL /exec do Apps Script
+const LS_KEY = "escala_fattoria_state_v4";
+const SYNC_ENDPOINT = "https://script.google.com/macros/s/AKfycbwQsmqSOmALernF48mfjTR6CGTdf9ycC-6g2AdexUcpA9Px-WxkYcfviUDTzo2WOEbFzw/exec";
 
 function id() { return Math.random().toString(36).slice(2, 10); }
 function byName(state: State, staffId: string) { return state.staff.find(s=>s.id===staffId)?.name || ""; }
@@ -47,12 +51,38 @@ const defaultState: State = {
 function encodeConfig(state: State){ const payload = { staff: state.staff, days: state.days, rules: state.rules }; const json = JSON.stringify(payload); return btoa(unescape(encodeURIComponent(json))); }
 function decodeConfig(b64: string){ try{ const json = decodeURIComponent(escape(atob(b64))); const obj = JSON.parse(json); if(obj && Array.isArray(obj.staff) && Array.isArray(obj.days) && Array.isArray(obj.rules)){ return obj as Pick<State, "staff"|"days"|"rules">; } }catch{} return null; }
 
+// ---------- PRIORIDADES ----------
+const LOW_LAST = new Set(["Duda","Dani"]); // últimas prioridades em qualquer dia
+const sundayOrder = ["Lauren","Marina","Leo","Nayara"]; // ordem domingo
+const weekdayOrder = ["Lauren","Marina","Leo","Ana","Mariana"]; // outros dias (Ana e Mariana iguais)
+
+// ordena nomes por prioridade do dia (mantém todos os disponíveis)
+function sortByPriorityForDay(names: string[], dayCode: string): string[] {
+  const base = (dayCode==="dom_almoco" || dayCode==="dom_noite") ? sundayOrder : weekdayOrder;
+  const rank = (nm: string) => {
+    if (LOW_LAST.has(nm)) return 10_000; // sempre por último
+    const i = base.indexOf(nm);
+    return i >= 0 ? i : 999; // quem não está explicitamente na lista vem depois
+  };
+  // estáveis: não quebrar ordem relativa de empate
+  return [...names].sort((a,b)=>{
+    const ra = rank(a), rb = rank(b);
+    if (ra !== rb) return ra - rb;
+    // empate: ordem alfabética só para estabilizar
+    return a.localeCompare(b, 'pt-BR');
+  });
+}
+
 export default function App(){
   const [state, setState] = useState<State>(()=>{ try{ const raw = localStorage.getItem(LS_KEY); return raw ? JSON.parse(raw) as State : defaultState; }catch{ return defaultState; } });
   const [activeTab, setActiveTab] = useState<"disponibilidade"|"escalar"|"limpar"|"export">("disponibilidade");
   const [selectedStaffId, setSelectedStaffId] = useState<string>("");
   const [weekIdSlash, setWeekIdSlash] = useState<string>("");
   const [weekIdDash, setWeekIdDash] = useState<string>("");
+
+  // respostas vindas do servidor
+  const [serverAvail, setServerAvail] = useState<Availability>({});
+
   const syncEnabled = !!SYNC_ENDPOINT;
 
   useEffect(()=>{
@@ -69,7 +99,41 @@ export default function App(){
 
   useEffect(()=>{ try{ localStorage.setItem(LS_KEY, JSON.stringify(state)); }catch{} }, [state]);
   useEffect(()=>{ if(!selectedStaffId && state.staff.length) setSelectedStaffId(state.staff[0].id); },[state.staff, selectedStaffId]);
+
   const update = (patch: Partial<State>) => setState(s=>({ ...s, ...patch }));
+
+  // ---- Helpers p/ servidor ----
+  function rowsToAvailability(rows: Array<{staff:string; days:string[]}>): Availability {
+    const nameToId = Object.fromEntries(state.staff.map(s => [s.name, s.id] as const));
+    const codeToId = Object.fromEntries(state.days.map(d => [d.code, d.id] as const));
+    const out: Availability = {};
+    for (const r of rows) {
+      const sid = nameToId[r.staff];
+      if (!sid) continue;
+      const ids = (r.days || []).map(c => codeToId[c]).filter(Boolean) as string[];
+      out[sid] = ids;
+    }
+    return out;
+  }
+
+  async function refreshServer() {
+    if (!SYNC_ENDPOINT || !weekIdDash) return;
+    try {
+      const url = `${SYNC_ENDPOINT}?action=list&weekId=${encodeURIComponent(weekIdDash)}`;
+      const resp = await fetch(url);
+      const data = await resp.json();
+      if (data?.ok && Array.isArray(data.rows)) {
+        setServerAvail(rowsToAvailability(data.rows));
+      }
+    } catch {
+      // silencioso
+    }
+  }
+
+  useEffect(()=>{ refreshServer(); }, [weekIdDash, state.staff, state.days]);
+
+  const availabilityForSolver: Availability =
+    Object.keys(serverAvail).length ? serverAvail : state.availability;
 
   return (
     <div className="min-h-screen text-gray-900 p-4 sm:p-6">
@@ -89,13 +153,18 @@ export default function App(){
 
         {activeTab==="disponibilidade" && (
           <Card title={`Formulário de Disponibilidade – Semana ${weekIdSlash || '(definir)'}`} icon={<ClipboardList className="w-5 h-5"/>}>
-            <AvailabilityForm state={state} update={update} selectedStaffId={selectedStaffId} setSelectedStaffId={setSelectedStaffId} weekId={weekIdDash} syncEnabled={syncEnabled} />
+            <AvailabilityForm
+              state={state} update={update}
+              selectedStaffId={selectedStaffId} setSelectedStaffId={setSelectedStaffId}
+              weekId={weekIdDash} syncEnabled={syncEnabled}
+              onSaved={refreshServer}
+            />
           </Card>
         )}
 
         {activeTab==="escalar" && (
           <Card title="Escalar" icon={<Cal className="w-5 h-5"/>}>
-            <SolverUI state={state} />
+            <SolverUI state={state} availability={availabilityForSolver} onRefresh={refreshServer} />
           </Card>
         )}
 
@@ -106,13 +175,13 @@ export default function App(){
         )}
 
         {activeTab==="export" && (
-          <Card title="Links para Compartilhar" icon={<Share2 className="w-5 h-5"/>}>
+          <Card title="Link para Compartilhar" icon={<Share2 className="w-5 h-5"/>}>
             <ShareExport state={state} weekId={weekIdDash} />
           </Card>
         )}
 
         <div className="mt-6 text-xs text-gray-500 flex items-center gap-2">
-          <RefreshCw className="w-4 h-4"/> Tudo salvo localmente. Envie o link de compartilhamento para o time preencher.
+          <RefreshCw className="w-4 h-4"/> Dados locais + servidor. Use “Escalar” → “Atualizar respostas”.
         </div>
       </div>
     </div>
@@ -136,7 +205,7 @@ function Card({title, icon, children}: CardProps){
   );
 }
 
-function AvailabilityForm({ state, update, selectedStaffId, setSelectedStaffId, weekId, syncEnabled }: AvailabilityFormProps){
+function AvailabilityForm({ state, update, selectedStaffId, setSelectedStaffId, weekId, syncEnabled, onSaved }: AvailabilityFormProps){
   const selected = state.staff.find(s=> s.id===selectedStaffId);
   const chosen = state.availability[selectedStaffId] || [];
 
@@ -147,52 +216,47 @@ function AvailabilityForm({ state, update, selectedStaffId, setSelectedStaffId, 
   };
 
   const save = async () => {
-  if (!selected) { alert("Selecione seu nome."); return; }
-  const chosenCodes = (state.availability[selectedStaffId]||[])
-    .map(did => state.days.find(d=>d.id===did)?.code)
-    .filter(Boolean) as string[];
+    if (!selected) { alert("Selecione seu nome."); return; }
+    const chosenCodes = (state.availability[selectedStaffId]||[])
+      .map(did => state.days.find(d=>d.id===did)?.code)
+      .filter(Boolean) as string[];
 
-  if (syncEnabled && weekId) {
-    try {
-      const resp = await fetch(SYNC_ENDPOINT, {
-        method: 'POST',
-        mode: 'no-cors', // evita preflight
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({ action: 'upsert', weekId, staff: selected.name, days: chosenCodes })
-      });
-
-      // Em no-cors a resposta é 'opaque' e não pode ser lida; trate como sucesso
-      // Se não estiver em no-cors, também trate 'opaque' como sucesso.
-      // @ts-ignore
-      if ((resp as any)?.type === 'opaque' || resp.status === 0) {
-        alert('Suas escolhas foram salvas.');
-        return;
-      }
-
-      // Caso não esteja usando no-cors (futuro com proxy), mantenha checagem
-      if (!resp.ok) {
-        const txt = await resp.text().catch(()=> "");
-        alert(`Falha ao salvar (HTTP ${resp.status}). Resposta: ${txt.slice(0,180)}`);
-        return;
-      }
-
-      // Tente interpretar JSON quando permitido (proxy)
-      const txt = await resp.text();
+    if (syncEnabled && weekId) {
       try {
-        const data = JSON.parse(txt);
-        if (data.ok) alert('Suas escolhas foram salvas.');
-        else alert(`Falha ao salvar no servidor: ${data.error || 'erro desconhecido'}`);
-      } catch {
-        // retorno não JSON
-        alert('Suas escolhas foram salvas.');
+        const resp = await fetch(SYNC_ENDPOINT, {
+          method: 'POST',
+          mode: 'no-cors',
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: JSON.stringify({ action: 'upsert', weekId, staff: selected.name, days: chosenCodes })
+        });
+        // Em no-cors a resposta é 'opaque' e não pode ser lida; trate como sucesso
+        // @ts-ignore
+        if ((resp as any)?.type === 'opaque' || (resp as any)?.status === 0) {
+          alert('Suas escolhas foram salvas.');
+          onSaved?.();
+          return;
+        }
+        if (!resp.ok) {
+          const txt = await resp.text().catch(()=> "");
+          alert(`Falha ao salvar (HTTP ${resp.status}). Resposta: ${txt.slice(0,180)}`);
+          return;
+        }
+        const txt = await resp.text();
+        try {
+          const data = JSON.parse(txt);
+          if (data.ok) { alert('Suas escolhas foram salvas.'); onSaved?.(); }
+          else alert(`Falha ao salvar no servidor: ${data.error || 'erro desconhecido'}`);
+        } catch {
+          alert('Suas escolhas foram salvas.'); onSaved?.();
+        }
+      } catch (err:any) {
+        alert(`Não foi possível enviar. Verifique sua conexão. Erro: ${String(err)}`);
       }
-    } catch (err:any) {
-      alert(`Não foi possível enviar. Verifique sua conexão. Erro: ${String(err)}`);
+    } else {
+      alert('Salvo localmente (modo offline).');
+      onSaved?.();
     }
-  } else {
-    alert('Salvo localmente (modo offline).');
-  }
-};
+  };
 
   return (
     <div className="space-y-3">
@@ -220,201 +284,262 @@ function AvailabilityForm({ state, update, selectedStaffId, setSelectedStaffId, 
   );
 }
 
-type SolveResult = { ok:boolean; assignments: Record<string,string[]>; messages:string[] };
+// ======== SOLVER ========
+type SolveResult = {
+  ok:boolean;
+  assignments: Record<string,string[]>;
+  messages:string[];
+  availSorted: Record<string,string[]>; // disponíveis (ordenados) por diaId
+};
 
-function solve(state:State): SolveResult {
+function solve(state:State, availability: Availability): SolveResult {
   const messages: string[] = [];
   const assignments: Record<string,string[]> = {}; // dayId -> staffIds
+  const availSorted: Record<string,string[]> = {};
 
   const staffById = Object.fromEntries(state.staff.map(s=>[s.id, s] as const));
   const nameOf = (sid:string)=> staffById[sid]?.name || "";
 
   // disponibilidade por dia (ids de staff)
-  const availPerDay: Record<string, string[]> = Object.fromEntries(
+  const availPerDayIds: Record<string, string[]> = Object.fromEntries(
     state.days.map(d=>{
       const avail = state.staff
-        .filter(s=> (state.availability[s.id]||[]).includes(d.id))
+        .filter(s=> (availability[s.id]||[]).includes(d.id))
         .map(s=>s.id);
       return [d.id, avail];
     })
   );
 
-  const mustPairs = state.rules.filter(r=>r.kind==="must").map(r=>[r.a,r.b] as [string,string]);
-  const neverPairs = state.rules.filter(r=>r.kind==="never").map(r=>[r.a,r.b] as [string,string]);
-
-  const checkSet = (set:string[])=>{
-    for (const [a,b] of neverPairs) { if (set.includes(a) && set.includes(b)) return false; }
-    for (const [a,b] of mustPairs)  { const ia=set.includes(a), ib=set.includes(b); if (ia!==ib) return false; }
-    return true;
-  };
-
-  const PRIORITY_STAR = new Set(["Marina","Lauren"]);
-  const AVOID_SINGLE  = new Set(["Leo","Ana","Mariana"]);
-  const LOW_LAST      = new Set(["Duda","Dani"]); // últimas prioridades
-
+  // --- montar lista de disponíveis ordenados por prioridade (por NOME) ---
   for (const day of state.days) {
-    const pool = [...(availPerDay[day.id]||[])];
+    const names = (availPerDayIds[day.id] || []).map(nameOf);
+    // Domingo: sempre incluir Gabi (se disponível) na lista (ela aparece junto, mas não conta no required)
+    const ordered = sortByPriorityForDay(names, day.code);
+    availSorted[day.id] = ordered.map(nm => {
+      // voltar para id (mantendo nomes únicos do cadastro)
+      const sid = state.staff.find(s=>s.name===nm)?.id || "";
+      return sid;
+    }).filter(Boolean);
+  }
 
-    // scoring
-    const score: Record<string, number> = {};
-    for (const sid of pool){
-      const n = nameOf(sid);
-      let sc = 0;
-      const mustC = mustPairs.filter(([a,b])=> a===sid || b===sid).length;
-      const nevC  = neverPairs.filter(([a,b])=> a===sid || b===sid).length;
-      sc += mustC*2 + nevC;
-      if (PRIORITY_STAR.has(n)) sc += 5;
-      if (day.code==="sab" && n==="Gabi") sc += 6;
-      if (day.required===1 && AVOID_SINGLE.has(n)) sc -= 4;
-      if (day.required===1 && n==="Ana") sc += 0.5;
-      if (LOW_LAST.has(n)) sc -= 1000;
-      score[sid] = sc;
-    }
-    pool.sort((u,v)=> (score[v]??0)-(score[u]??0));
-
+  // --- proposição automática (sugestão) ---
+  for (const day of state.days) {
+    const poolIds = availSorted[day.id] || [];
+    const poolNames = poolIds.map(nameOf);
     const target = day.required;
-    let found: string[] | null = null;
 
-    // agrupar pares "must"
-    const parent:Record<string,string> = {}; for (const s of pool) parent[s]=s;
-    const findp = (x:string):string => parent[x]===x ? x : (parent[x]=findp(parent[x]));
-    const unite = (x:string,y:string)=>{ x=findp(x); y=findp(y); if (x!==y) parent[y]=x; };
-    for (const [a,b] of mustPairs){ if (pool.includes(a) && pool.includes(b)) unite(a,b); }
-    const groups:Record<string,string[]> = {}; for (const s of pool){ const p=findp(s); (groups[p]??=[]).push(s); }
+    let chosen: string[] = [];
 
-    function backtrack(idx:number, chosen:string[]) {
-      if (found) return;
-      if (chosen.length>target) return;
-      if (idx>=pool.length) { if (chosen.length===target && checkSet(chosen)) found=[...chosen]; return; }
-      const remaining = target - chosen.length; if (remaining>(pool.length-idx)) return;
-
-      const s = pool[idx];
-      const g = groups[findp(s)] || [s];
-
-      const includeSet = Array.from(new Set([...chosen, ...g]));
-      if (includeSet.length<=target && checkSet(includeSet)) backtrack(idx+1, includeSet);
-      backtrack(idx+1, chosen);
+    // DOMINGOS: incluir Gabi SEM CONTAR no requerido
+    if ((day.code==="dom_almoco" || day.code==="dom_noite") && poolNames.includes("Gabi")) {
+      const gid = state.staff.find(s=>s.name==="Gabi")!.id;
+      // a Gabi não entra no count, mas adicionamos ao conjunto final (marcada como extra na UI)
+      chosen.push(gid);
     }
-    backtrack(0, []);
 
-    // Regras especiais para dias com 1 pessoa (preferências)
-    if (day.required===1) {
-      const namesInPool = new Set(pool.map(nameOf));
-      const hasStar = namesInPool.has("Marina") || namesInPool.has("Lauren");
-      if (!hasStar){
-        const idByName = (nm:string)=> pool.find(sid=> nameOf(sid)===nm);
-        if (namesInPool.has("Ana") && namesInPool.has("Mariana")) {
-          const ana = idByName("Ana"); if (ana) found = [ana];
-        } else if (namesInPool.has("Leo") && !found) {
-          const leo = idByName("Leo"); if (leo) found = [leo];
-        } else if (namesInPool.has("Mariana") && !found) {
-          const mar = idByName("Mariana"); if (mar) found = [mar];
-        }
+    // agora preencher vagas restantes pela prioridade do dia
+    for (const sid of poolIds) {
+      const nm = nameOf(sid);
+      if (nm==="Gabi" && (day.code==="dom_almoco" || day.code==="dom_noite")) {
+        // Gabi já tratada como extra — não ocupa vaga
+        continue;
+      }
+      if (chosen.includes(sid)) continue;
+      if (chosen.filter(x=> nameOf(x)!=="Gabi").length < target) {
+        chosen.push(sid);
       }
     }
 
-    // Tentar substituir Duda/Dani por outra pessoa quando possível
-    if (found){
-      for (const sid of [...found]){
-        const n = nameOf(sid);
-        if (!LOW_LAST.has(n)) continue;
-        const candidate = pool.find(x=> !LOW_LAST.has(nameOf(x)) && !found!.includes(x));
-        if (candidate){
-          const trial: string[] = [...found.filter(z=>z!==sid), candidate];
-          if (trial.length===target && checkSet(trial)) found = trial;
-        }
-      }
-    }
+    // cortar eventuais sobras (apenas não-Gabi contam pro corte)
+    const nonGabi = chosen.filter(x=> nameOf(x)!=="Gabi").slice(0, target);
+    const final = (chosen.includes(state.staff.find(s=>s.name==="Gabi")?.id || ""))
+      ? Array.from(new Set([state.staff.find(s=>s.name==="Gabi")!.id, ...nonGabi]))
+      : nonGabi;
 
-    assignments[day.id] = found ? found : [];
+    assignments[day.id] = final;
   }
 
-  // Preferência: evitar mesma pessoa em Domingo Almoço e Noite (exceto Gabi)
-  const dayLunch = state.days.find(d=>d.code==="dom_almoco");
-  const dayNight = state.days.find(d=>d.code==="dom_noite");
-  if (dayLunch && dayNight) {
-    const A = new Set(assignments[dayLunch.id]||[]);
-    const B = new Set(assignments[dayNight.id]||[]);
-    for (const sid of Array.from(A)) {
-      const n = nameOf(sid);
-      if (n==="Gabi") continue; // exceção
-      if (B.has(sid)) {
-        const poolNight = (availPerDay[dayNight.id]||[]).filter(x=> !B.has(x));
-        const candidate = poolNight.find(x=>{
-          const test = Array.from(new Set([ ...assignments[dayNight.id], x ]))
-            .filter(z=> z!==sid)
-            .slice(0, dayNight.required);
-          return test.length===dayNight.required;
-        });
-        if (candidate) {
-          assignments[dayNight.id] = Array.from(new Set([ ...assignments[dayNight.id], candidate ]))
-            .filter(z=> z!==sid)
-            .slice(0, dayNight.required);
-          B.delete(sid);
-        }
-      }
-    }
-  }
+  const ok = state.days.every(d=> (assignments[d.id]||[]).filter(x=> state.staff.find(s=>s.id===x)?.name!=="Gabi").length===d.required);
 
-  const ok = state.days.every(d=> (assignments[d.id]||[]).length===d.required);
-
-  // mensagens finais (usar o MESMO array messages – não redeclarar)
+  // Mensagens (não serão exibidas na UI, mas mantemos para depuração/uso futuro)
   for (const d of state.days) {
-    const avail = (availPerDay[d.id]||[]).length;
+    const avail = (availSorted[d.id]||[]).length;
+    const namesAvail = (availSorted[d.id]||[]).map(id=> state.staff.find(s=>s.id===id)?.name || id).join(", ");
+    messages.push(`Disponíveis ${d.label}: ${namesAvail || "—"}`);
     if (avail < d.required) messages.push(`ℹ️ ${d.label}: só ${avail} disponíveis para ${d.required} vagas.`);
-    const names = (assignments[d.id]||[])
-      .map(sid=> state.staff.find(s=>s.id===sid)?.name || sid)
-      .filter(Boolean)
-      .join(", ");
-    messages.push(names ? `✅ ${d.label}: ${names}` : `❌ ${d.label}: não preenchido`);
   }
 
-  return { ok, assignments, messages };
+  return { ok, assignments, messages, availSorted };
 }
 
+function SolverUI({ state, availability, onRefresh }: SolverUIProps){
+  const res = useMemo(()=> solve(state, availability), [state, availability]);
+  const { assignments, availSorted } = res;
 
-function SolverUI({ state }: SolverUIProps){
-  const res = useMemo(()=> solve(state), [state]);
-  const { assignments, messages } = res;
-  const respondedIds = Object.keys(state.availability||{});
+  // Quem respondeu
+  const respondedIds = Object.keys(availability||{});
   const respondedSet = new Set(respondedIds);
   const missing = state.staff.filter(s=>!respondedSet.has(s.id)).map(s=>s.name);
   const total = state.staff.length;
 
+  // estado local para confirmação final (comboboxes)
+  const [confirm, setConfirm] = useState<Record<string, string[]>>(()=> {
+    const init: Record<string,string[]> = {};
+    for (const d of state.days) {
+      const sugg = (assignments[d.id]||[]).filter(x=> state.staff.find(s=>s.id===x)?.name!=="Gabi"); // não contar Gabi nos slots
+      // tamanho exatamente = required (preenche com vazio se faltar)
+      const target = d.required;
+      const arr = Array.from({length: target}, (_,i)=> sugg[i] || "");
+      init[d.id] = arr;
+    }
+    return init;
+  });
+
+  useEffect(()=> {
+    // quando availability mudar, refaz sugestão
+    const init: Record<string,string[]> = {};
+    for (const d of state.days) {
+      const sugg = (assignments[d.id]||[]).filter(x=> state.staff.find(s=>s.id===x)?.name!=="Gabi");
+      const target = d.required;
+      const arr = Array.from({length: target}, (_,i)=> sugg[i] || "");
+      init[d.id] = arr;
+    }
+    setConfirm(init);
+  }, [availability, state.days, assignments]);
+
+  const setConfirmCell = (dayId:string, idx:number, val:string) => {
+    setConfirm(prev => {
+      const arr = [...(prev[dayId]||[])];
+      arr[idx] = val;
+      return { ...prev, [dayId]: arr };
+    });
+  };
+
+  // helpers de UI
+  const labelOf = (sid:string) => state.staff.find(s=>s.id===sid)?.name || "";
+
+  // lista de disponíveis (ordenados) por nome (para exibir)
+  const availNamesByDay: Record<string,string[]> = Object.fromEntries(
+    state.days.map(d=>{
+      const arr = (availSorted[d.id]||[]).map(labelOf);
+      // Em domingos, Gabi aparece na lista visual também (sem problemas)
+      return [d.id, arr];
+    })
+  );
+
+  // opções para os selects finais (somente disponíveis; em domingos, excluir Gabi dos slots)
+  const selectOptionsByDay: Record<string, {id:string, name:string}[]> = Object.fromEntries(
+    state.days.map(d=>{
+      const ids = (availSorted[d.id]||[]).filter(sid=>{
+        const nm = labelOf(sid);
+        if ((d.code==="dom_almoco" || d.code==="dom_noite") && nm==="Gabi") return false; // Gabi não ocupa slot
+        return true;
+      });
+      return [d.id, ids.map(sid=> ({ id:sid, name: labelOf(sid) }))];
+    })
+  );
+
+  const hasGabi = (dayId:string) => {
+    const nm = (assignments[dayId]||[]).map(labelOf);
+    return nm.includes("Gabi");
+  };
+
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       <div className="text-sm">
         {missing.length===0 ? (
-          <div className="rounded-xl border px-3 py-2 bg-green-50 text-green-800">Todas as {total} pessoas já responderam.</div>
+          <div className="rounded-xl border px-3 py-2 bg-green-50 text-green-800">
+            Todas as {total} pessoas já responderam.
+          </div>
         ) : (
           <div className="rounded-xl border px-3 py-2 bg-amber-50 text-amber-800">
             {total - missing.length} de {total} já responderam.
             <span className="block text-xs mt-1">Sem resposta: {missing.join(", ")}</span>
+            <div className="mt-2">
+              <button onClick={onRefresh} className="btn btn-ghost text-sm">Atualizar respostas</button>
+            </div>
+          </div>
+        )}
+        {missing.length===0 && (
+          <div className="mt-2">
+            <button onClick={onRefresh} className="btn btn-ghost text-sm">Atualizar respostas</button>
           </div>
         )}
       </div>
+
+      {/* Tabela de DISPONÍVEIS (ordenados por prioridade) */}
       <div className="overflow-auto">
         <table className="min-w-full border text-sm">
-          <thead className="bg-gray-100"><tr>
-            <th className="border px-3 py-2 text-left">Dia/Turno</th>
-            <th className="border px-3 py-2 text-left">Requeridos</th>
-            <th className="border px-3 py-2 text-left">Escalados</th>
-          </tr></thead>
+          <thead className="bg-gray-100">
+            <tr>
+              <th className="border px-3 py-2 text-left">Dia/Turno</th>
+              <th className="border px-3 py-2 text-left">Requeridos</th>
+              <th className="border px-3 py-2 text-left">Disponíveis (na ordem de prioridade)</th>
+            </tr>
+          </thead>
           <tbody>
             {state.days.map(day=>{
-              const names = (assignments[day.id]||[]).map(id=> state.staff.find(s=>s.id===id)?.name || id);
+              const names = availNamesByDay[day.id] || [];
               return (
                 <tr key={day.id}>
                   <td className="border px-3 py-2">{day.label}</td>
                   <td className="border px-3 py-2">{day.required}</td>
-                  <td className="border px-3 py-2">{names.length? names.join(", ") : <span className="text-red-600">Não preenchido</span>}</td>
+                  <td className="border px-3 py-2">
+                    {names.length ? names.join(", ") : <span className="text-red-600">— ninguém disponível</span>}
+                    {(day.code==="dom_almoco" || day.code==="dom_noite") && hasGabi(day.id) && (
+                      <span className="ml-2 text-xs text-gray-600">(Gabi será adicionada automaticamente como extra)</span>
+                    )}
+                  </td>
                 </tr>
               );
             })}
           </tbody>
         </table>
       </div>
-      <div className="space-y-1">{messages.map((m,i)=>(<div key={i} className="text-sm">{m}</div>))}</div>
+
+      {/* Tabela de CONFIRMAÇÃO da escala (comboboxes) */}
+      <div className="overflow-auto">
+        <table className="min-w-full border text-sm">
+          <thead className="bg-gray-100">
+            <tr>
+              <th className="border px-3 py-2 text-left">Dia/Turno</th>
+              <th className="border px-3 py-2 text-left">Escalação</th>
+            </tr>
+          </thead>
+          <tbody>
+            {state.days.map(day=>{
+              const options = selectOptionsByDay[day.id] || [];
+              const slots = confirm[day.id] || Array.from({length: day.required}, ()=>"");
+              return (
+                <tr key={day.id}>
+                  <td className="border px-3 py-2 align-top">{day.label}</td>
+                  <td className="border px-3 py-2">
+                    <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                      {slots.map((val,idx)=>(
+                        <select
+                          key={idx}
+                          className="input"
+                          value={val}
+                          onChange={(e)=> setConfirmCell(day.id, idx, e.target.value)}
+                        >
+                          <option value="">— Selecionar —</option>
+                          {options.map(opt=>(
+                            <option key={opt.id} value={opt.id}>{opt.name}</option>
+                          ))}
+                        </select>
+                      ))}
+                    </div>
+                    {(day.code==="dom_almoco" || day.code==="dom_noite") && hasGabi(day.id) && (
+                      <div className="text-xs text-gray-600 mt-1">Obs.: Gabi será adicionada como extra (não ocupa vaga).</div>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
     </div>
   );
 }
@@ -424,7 +549,6 @@ function ShareExport({ state, weekId }: ShareExportProps){
   const base = typeof window!=="undefined" ? window.location.origin + window.location.pathname : "";
   const conf = encodeConfig(state);
   const shareLink = `${base}?s=${encodeURIComponent(conf)}&w=${encodeURIComponent(weekId||"")}`;
-  const makeRespondLink = (name:string)=> `${shareLink}&staff=${encodeURIComponent(name)}`;
   const copy = async (txt:string)=>{ try{ await navigator.clipboard.writeText(txt); setCopied(true); setTimeout(()=>setCopied(false), 1200);}catch{} };
 
   return (
@@ -433,19 +557,6 @@ function ShareExport({ state, weekId }: ShareExportProps){
       <div className="flex flex-col sm:flex-row gap-2">
         <input readOnly value={shareLink} className="input w-full"/>
         <button onClick={()=>copy(shareLink)} className="btn btn-primary"><Copy className="w-4 h-4"/>{copied?"Copiado!":"Copiar"}</button>
-      </div>
-      <div className="text-sm text-gray-700">Ou envie links diretos para cada pessoa (já abre com o nome selecionado):</div>
-      <div className="grid sm:grid-cols-2 gap-2">
-        {state.staff.map(s=>{
-          const url = makeRespondLink(s.name);
-          return (
-            <div key={s.id} className="flex gap-2 items-center">
-              <span className="text-sm w-28 truncate">{s.name}</span>
-              <input readOnly value={url} className="input flex-1"/>
-              <button onClick={()=>copy(url)} className="btn btn-ghost text-sm">Copiar</button>
-            </div>
-          );
-        })}
       </div>
     </div>
   );
@@ -501,4 +612,3 @@ function ClearTab({
     </div>
   );
 }
-
