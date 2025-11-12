@@ -23,7 +23,7 @@ interface AvailabilityFormProps {
 }
 
 const LS_KEY = "escala_fattoria_state_v4";
-const SYNC_ENDPOINT = "https://script.google.com/macros/library/d/10h4uo-67mMWvdeMQqu6YDe03v-cd9cD9qw8B2-JXrPaJ9FQRAVqH8h5-/9";
+const SYNC_ENDPOINT = "https://script.google.com/macros/s/AKfycbwQsmqSOmALernF48mfjTR6CGTdf9ycC-6g2AdexUcpA9Px-WxkYcfviUDTzo2WOEbFzw/exec";
 
 function id() { return Math.random().toString(36).slice(2, 10); }
 function byName(state: State, staffId: string) { return state.staff.find(s=>s.id===staffId)?.name || ""; }
