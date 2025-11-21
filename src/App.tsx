@@ -774,6 +774,45 @@ function SolverUI({ state, availability, onRefresh, weekId }: SolverUIProps) {
     return nm.includes("Gabi");
   };
 
+  const weekLabel = useMemo(
+    () => (weekId ? weekId.split("-").join("/") : "-"),
+    [weekId]
+  );
+
+  // monta linhas da escalação final
+  const finalRows = useMemo(
+    () =>
+      state.days.map((day) => {
+        const selectedIds = (confirm[day.id] || []).filter(Boolean);
+        const namesOrdered: string[] = [];
+
+        const addName = (nm: string) => {
+          if (nm && !namesOrdered.includes(nm)) namesOrdered.push(nm);
+        };
+
+        // selecionados nos slots
+        selectedIds.forEach((sid) => addName(labelOf(sid)));
+
+        // Gabi extra automática nos domingos (se presente na sugestão)
+        const isDom = day.code === "dom_almoco" || day.code === "dom_noite";
+        if (isDom && hasGabi(day.id)) {
+          addName("Gabi");
+        }
+
+        // extra manual escolhido
+        const extraId = extraByDay[day.id];
+        if (extraId) {
+          addName(labelOf(extraId));
+        }
+
+        return {
+          dayLabel: day.label,
+          names: namesOrdered,
+        };
+      }),
+    [state.days, confirm, extraByDay, assignments]
+  );
+
   return (
     <div className="space-y-6">
       <div className="text-sm">
@@ -801,121 +840,152 @@ function SolverUI({ state, availability, onRefresh, weekId }: SolverUIProps) {
         )}
       </div>
 
-      {/* Tabela de DISPONÍVEIS */}
-      <div className="overflow-auto">
-        <table className="min-w-full border text-sm">
-          <thead className="bg-gray-100">
-            <tr>
-              <th className="border px-3 py-2 text-left">Dia/Turno</th>
-              <th className="border px-3 py-2 text-left">Requeridos</th>
-              <th className="border px-3 py-2 text-left">
-                Disponíveis (na ordem de prioridade)
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {state.days.map((day) => {
-              const names = availNamesByDay[day.id] || [];
-              return (
-                <tr key={day.id}>
-                  <td className="border px-3 py-2">{day.label}</td>
-                  <td className="border px-3 py-2">{day.required}</td>
-                  <td className="border px-3 py-2">
-                    {names.length ? (
-                      names.join(", ")
-                    ) : (
-                      <span className="text-red-600">— ninguém disponível</span>
-                    )}
-                    {(day.code === "dom_almoco" || day.code === "dom_noite") &&
-                      hasGabi(day.id) && (
-                        <span className="ml-2 text-xs text-gray-600">
-                          (Gabi será adicionada automaticamente como extra)
-                        </span>
+      {/* Tabela de DISPONIBILIDADE */}
+      <div>
+        <h3 className="font-semibold text-base mb-2">Tabela de Disponibilidade</h3>
+        <div className="overflow-auto">
+          <table className="min-w-full border text-sm">
+            <thead className="bg-gray-100">
+              <tr>
+                <th className="border px-3 py-2 text-left">Dia/Turno</th>
+                <th className="border px-3 py-2 text-left">Requeridos</th>
+                <th className="border px-3 py-2 text-left">
+                  Disponíveis (na ordem de prioridade)
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {state.days.map((day) => {
+                const names = availNamesByDay[day.id] || [];
+                return (
+                  <tr key={day.id}>
+                    <td className="border px-3 py-2">{day.label}</td>
+                    <td className="border px-3 py-2">{day.required}</td>
+                    <td className="border px-3 py-2">
+                      {names.length ? (
+                        names.join(", ")
+                      ) : (
+                        <span className="text-red-600">— ninguém disponível</span>
                       )}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+                      {(day.code === "dom_almoco" || day.code === "dom_noite") &&
+                        hasGabi(day.id) && (
+                          <span className="ml-2 text-xs text-gray-600">
+                            (Gabi será adicionada automaticamente como extra)
+                          </span>
+                        )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
       </div>
 
-      {/* Cabeçalho da escalação */}
-      <div className="flex items-center justify-between">
-        <h3 className="font-semibold text-base">Escalação (confirme abaixo)</h3>
-      </div>
+      {/* Tabela de SELEÇÃO */}
+      <div>
+        <h3 className="font-semibold text-base mb-2">Tabela de Seleção</h3>
+        <div className="overflow-auto">
+          <table className="min-w-full border text-sm">
+            <thead className="bg-gray-100">
+              <tr>
+                <th className="border px-3 py-2 text-left">Dia/Turno</th>
+                <th className="border px-3 py-2 text-left">Escalação</th>
+              </tr>
+            </thead>
+            <tbody>
+              {state.days.map((day) => {
+                const options = selectOptionsByDay[day.id] || [];
+                const slots = confirm[day.id] || Array.from({ length: day.required }, () => "");
+                const extraVal = extraByDay[day.id] || "";
+                const extraOptionsIds = availSorted[day.id] || [];
+                return (
+                  <tr key={day.id}>
+                    <td className="border px-3 py-2 align-top">{day.label}</td>
+                    <td className="border px-3 py-2">
+                      <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                        {slots.map((val, idx) => (
+                          <select
+                            key={idx}
+                            className="input"
+                            value={val}
+                            onChange={(e) =>
+                              setConfirmCell(day.id, idx, e.target.value)
+                            }
+                          >
+                            <option value="">— Selecionar —</option>
+                            {options.map((opt) => (
+                              <option key={opt.id} value={opt.id}>
+                                {opt.name}
+                              </option>
+                            ))}
+                          </select>
+                        ))}
+                      </div>
 
-      {/* Tabela de CONFIRMAÇÃO */}
-      <div className="overflow-auto">
-        <table className="min-w-full border text-sm">
-          <thead className="bg-gray-100">
-            <tr>
-              <th className="border px-3 py-2 text-left">Dia/Turno</th>
-              <th className="border px-3 py-2 text-left">Escalação</th>
-            </tr>
-          </thead>
-          <tbody>
-            {state.days.map((day) => {
-              const options = selectOptionsByDay[day.id] || [];
-              const slots = confirm[day.id] || Array.from({ length: day.required }, () => "");
-              const extraVal = extraByDay[day.id] || "";
-              const extraOptionsIds = availSorted[day.id] || [];
-              return (
-                <tr key={day.id}>
-                  <td className="border px-3 py-2 align-top">{day.label}</td>
-                  <td className="border px-3 py-2">
-                    <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-2">
-                      {slots.map((val, idx) => (
+                      <div className="mt-2">
+                        <label className="text-xs text-gray-600 block mb-1">
+                          Extra (opcional)
+                        </label>
                         <select
-                          key={idx}
-                          className="input"
-                          value={val}
-                          onChange={(e) => setConfirmCell(day.id, idx, e.target.value)}
+                          className="input max-w-xs"
+                          value={extraVal}
+                          onChange={(e) => setExtraForDay(day.id, e.target.value)}
                         >
-                          <option value="">— Selecionar —</option>
-                          {options.map((opt) => (
-                            <option key={opt.id} value={opt.id}>
-                              {opt.name}
+                          <option value="">— Nenhum —</option>
+                          {extraOptionsIds.map((sid) => (
+                            <option key={sid} value={sid}>
+                              {labelOf(sid)}
                             </option>
                           ))}
                         </select>
-                      ))}
-                    </div>
+                      </div>
 
-                    <div className="mt-2">
-                      <label className="text-xs text-gray-600 block mb-1">
-                        Extra (opcional)
-                      </label>
-                      <select
-                        className="input max-w-xs"
-                        value={extraVal}
-                        onChange={(e) => setExtraForDay(day.id, e.target.value)}
-                      >
-                        <option value="">— Nenhum —</option>
-                        {extraOptionsIds.map((sid) => (
-                          <option key={sid} value={sid}>
-                            {labelOf(sid)}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
+                      {(day.code === "dom_almoco" || day.code === "dom_noite") &&
+                        hasGabi(day.id) && (
+                          <div className="text-xs text-gray-600 mt-1">
+                            Obs.: Gabi será adicionada como extra (não ocupa vaga).
+                          </div>
+                        )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
 
-                    {(day.code === "dom_almoco" || day.code === "dom_noite") &&
-                      hasGabi(day.id) && (
-                        <div className="text-xs text-gray-600 mt-1">
-                          Obs.: Gabi será adicionada como extra (não ocupa vaga).
-                        </div>
-                      )}
+      {/* Tabela de ESCALAÇÃO FINAL */}
+      <div>
+        <h3 className="font-semibold text-base mb-2">
+          Escalação Final da Semana {weekLabel}
+        </h3>
+        <div className="overflow-auto">
+          <table className="min-w-full border text-sm">
+            <thead className="bg-gray-100">
+              <tr>
+                <th className="border px-3 py-2 text-left">Dia/Turno</th>
+                <th className="border px-3 py-2 text-left">Escalação Final</th>
+              </tr>
+            </thead>
+            <tbody>
+              {finalRows.map((row, idx) => (
+                <tr key={idx}>
+                  <td className="border px-3 py-2">{row.dayLabel}</td>
+                  <td className="border px-3 py-2">
+                    {row.names.length ? row.names.join(", ") : "—"}
                   </td>
                 </tr>
-              );
-            })}
-          </tbody>
-        </table>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   );
 }
+
 
 function ShareExport({ state, weekId }: ShareExportProps) {
   const [copied, setCopied] = useState(false);
