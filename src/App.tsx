@@ -505,8 +505,6 @@ function PunchTab({ staff }: PunchTabProps) {
     return out;
   }, [staff]);
 
-
-
   useEffect(() => {
     if (!selectedId && allPeople.length) {
       setSelectedId(allPeople[0].id);
@@ -593,7 +591,7 @@ function PunchTab({ staff }: PunchTabProps) {
   );
 }
 
-// ======== SOLVER NOVO (15 boxes, sem prioridade) ========
+// ======== SOLVER (15 boxes, sem prioridade) + envio por e-mail ========
 const SLOTS_PER_DAY = 15;
 
 function SolverUI({ state, availability, onRefresh, weekId }: SolverUIProps) {
@@ -663,26 +661,53 @@ function SolverUI({ state, availability, onRefresh, weekId }: SolverUIProps) {
     });
   };
 
-  const [showFinal, setShowFinal] = useState(false);
-  const weekLabel = useMemo(
-    () => (weekId ? weekId.split("-").join("/") : "-"),
-    [weekId]
-  );
+  // Enviar escala por e-mail (para cada colaborador + resumo geral para isagvm@gmail.com)
+  const handleSendEmails = async () => {
+    if (!SYNC_ENDPOINT) {
+      alert("Nenhum endpoint de sincronização configurado.");
+      return;
+    }
 
-  const finalRows = useMemo(() => {
-    if (!showFinal) return [];
-    return state.days.map((day) => {
+    // monta objeto { [dayCode]: [nomesÚnicos] }
+    const schedule: Record<string, string[]> = {};
+    for (const day of state.days) {
       const arr = selects[day.id] || [];
       const names = arr
         .filter(Boolean)
         .map((sid) => labelOf(sid))
-        .filter((nm, idx, all) => nm && all.indexOf(nm) === idx);
-      return {
-        dayLabel: day.label,
-        names,
+        .filter(Boolean);
+      const uniqueNames = Array.from(new Set(names));
+      schedule[day.code] = uniqueNames;
+    }
+
+    try {
+      const payload = {
+        action: "send_schedule",
+        weekId,
+        schedule,
       };
-    });
-  }, [showFinal, selects, state.days]);
+      const resp = await fetch(SYNC_ENDPOINT, {
+        method: "POST",
+        mode: "no-cors",
+        headers: { "Content-Type": "text/plain;charset=utf-8" },
+        body: JSON.stringify(payload),
+      });
+      // Em no-cors a resposta é 'opaque'; tratamos como sucesso
+      // @ts-ignore
+      if ((resp as any)?.type === "opaque" || (resp as any)?.status === 0) {
+        alert("Escalas enviadas por e-mail (solicitação enviada ao servidor).");
+        return;
+      }
+      if (!resp.ok) {
+        const txt = await resp.text().catch(() => "");
+        alert(`Falha ao enviar escalas por e-mail (HTTP ${resp.status}). ${txt.slice(0, 180)}`);
+        return;
+      }
+      alert("Escalas enviadas por e-mail.");
+    } catch (err: any) {
+      alert(`Não foi possível enviar as escalas por e-mail. Erro: ${String(err)}`);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -792,42 +817,19 @@ function SolverUI({ state, availability, onRefresh, weekId }: SolverUIProps) {
         </div>
       </div>
 
-      {/* BOTÃO + ESCALAÇÃO FINAL */}
-      <div className="space-y-3">
+      {/* BOTÃO ENVIAR ESCALA POR E-MAIL */}
+      <div className="space-y-2">
         <button
-          onClick={() => setShowFinal(true)}
+          onClick={handleSendEmails}
           className="btn btn-primary text-sm"
         >
-          Gerar Escalação Final
+          Enviar escala por e-mail
         </button>
-
-        {showFinal && (
-          <div>
-            <h3 className="font-semibold text-base mb-2">
-              Escalação Final da Semana {weekLabel}
-            </h3>
-            <div className="overflow-auto">
-              <table className="min-w-full border text-sm">
-                <thead className="bg-gray-100">
-                  <tr>
-                    <th className="border px-3 py-2 text-left">Dia/Turno</th>
-                    <th className="border px-3 py-2 text-left">Escalação Final</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {finalRows.map((row, idx) => (
-                    <tr key={idx}>
-                      <td className="border px-3 py-2">{row.dayLabel}</td>
-                      <td className="border px-3 py-2">
-                        {row.names.length ? row.names.join(", ") : "—"}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
+        <div className="text-xs text-gray-500">
+          Os e-mails serão enviados para os endereços cadastrados na planilha{" "}
+          <span className="font-semibold">"Cadastro_colaboradores"</span>, e o resumo
+          completo da semana será enviado para <b>isagvm@gmail.com</b>.
+        </div>
       </div>
     </div>
   );
@@ -909,5 +911,3 @@ function ClearTab({
     </div>
   );
 }
-
-
