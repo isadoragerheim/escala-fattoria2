@@ -499,11 +499,13 @@ function PunchTab({ staff }: PunchTabProps) {
       if (seen.has(name)) continue;
       seen.add(name);
       const st = staff.find((s) => s.name === name);
-      const id = st ? s.id : `extra-${name}`;
+      const id = st ? st.id : `extra-${name}`;
       out.push({ id, label: name });
     }
     return out;
   }, [staff]);
+
+
 
   useEffect(() => {
     if (!selectedId && allPeople.length) {
