@@ -114,6 +114,8 @@ function decodeConfig(b64: string) {
 }
 
 export default function App() {
+  type Mode = "admin" | "colab";
+
   const [state, setState] = useState<State>(() => {
     try {
       const raw = localStorage.getItem(LS_KEY);
@@ -122,9 +124,13 @@ export default function App() {
       return defaultState;
     }
   });
+
+  const [mode, setMode] = useState<Mode>("admin");
+
   const [activeTab, setActiveTab] = useState<
     "disponibilidade" | "baterponto" | "escalar" | "limpar" | "export"
   >("disponibilidade");
+
   const [selectedStaffId, setSelectedStaffId] = useState<string>("");
   const [weekIdSlash, setWeekIdSlash] = useState<string>("");
   const [weekIdDash, setWeekIdDash] = useState<string>("");
@@ -133,6 +139,7 @@ export default function App() {
 
   const syncEnabled = !!SYNC_ENDPOINT;
 
+  // lê parâmetros da URL (config, staff, semana, modo)
   useEffect(() => {
     const url = new URL(window.location.href);
     const s = url.searchParams.get("s");
@@ -144,10 +151,20 @@ export default function App() {
     }
     const wanted = url.searchParams.get("staff");
     const w = url.searchParams.get("w");
+    const m = url.searchParams.get("mode"); // "colab" ou "admin"
+
+    if (m === "colab") {
+      setMode("colab");
+      setActiveTab("disponibilidade"); // garante que abra na aba de disponibilidade
+    } else if (m === "admin") {
+      setMode("admin");
+    }
+
     const initialDash = w || weekIdFromDate_dash(new Date());
     setWeekIdDash(initialDash);
-    const [d, m, y] = initialDash.split("-").map(Number);
-    setWeekIdSlash(`${String(d).padStart(2, "0")}/${String(m).padStart(2, "0")}/${y}`);
+    const [d, mNum, y] = initialDash.split("-").map(Number);
+    setWeekIdSlash(`${String(d).padStart(2, "0")}/${String(mNum).padStart(2, "0")}/${y}`);
+
     if (wanted) {
       setTimeout(() => {
         setState((curr) => {
@@ -161,12 +178,14 @@ export default function App() {
     }
   }, []);
 
+  // persiste estado local
   useEffect(() => {
     try {
       localStorage.setItem(LS_KEY, JSON.stringify(state));
     } catch {}
   }, [state]);
 
+  // seleciona primeiro nome por padrão
   useEffect(() => {
     if (!selectedStaffId && state.staff.length) setSelectedStaffId(state.staff[0].id);
   }, [state.staff, selectedStaffId]);
@@ -235,6 +254,8 @@ export default function App() {
   const availabilityForSolver: Availability =
     Object.keys(serverAvail).length ? serverAvail : state.availability;
 
+  const isColab = mode === "colab";
+
   return (
     <div className="min-h-screen text-gray-900 p-4 sm:p-6">
       <div className="max-w-5xl mx-auto">
@@ -242,43 +263,52 @@ export default function App() {
           <div>
             <h1 className="text-2xl font-bold">Escalação Semanal Fattoria</h1>
             <p className="text-sm text-gray-600">
-              Preencha disponibilidades no celular, bata ponto e gere a escala.
+              Preencha disponibilidades no celular, bata ponto e, no painel da gerência,
+              organize a escala.
             </p>
           </div>
           <div className="flex gap-2 overflow-auto">
+            {/* Sempre visível: Disponibilidade */}
             <TabButton
               icon={<ClipboardList className="w-4 h-4" />}
               active={activeTab === "disponibilidade"}
               onClick={() => setActiveTab("disponibilidade")}
               label="Disponibilidade"
             />
+            {/* Bater ponto – pode ser usado tanto por colaborador quanto por admin */}
             <TabButton
               icon={<Cal className="w-4 h-4" />}
               active={activeTab === "baterponto"}
               onClick={() => setActiveTab("baterponto")}
               label="Bater ponto"
             />
-            <TabButton
-              icon={<Cal className="w-4 h-4" />}
-              active={activeTab === "escalar"}
-              onClick={() => setActiveTab("escalar")}
-              label="Escalar"
-            />
-            <TabButton
-              icon={<Trash2 className="w-4 h-4" />}
-              active={activeTab === "limpar"}
-              onClick={() => setActiveTab("limpar")}
-              label="Limpar"
-            />
-            <TabButton
-              icon={<Share2 className="w-4 h-4" />}
-              active={activeTab === "export"}
-              onClick={() => setActiveTab("export")}
-              label="Compartilhar"
-            />
+            {/* As abas abaixo só aparecem no modo admin */}
+            {!isColab && (
+              <>
+                <TabButton
+                  icon={<Cal className="w-4 h-4" />}
+                  active={activeTab === "escalar"}
+                  onClick={() => setActiveTab("escalar")}
+                  label="Escalar"
+                />
+                <TabButton
+                  icon={<Trash2 className="w-4 h-4" />}
+                  active={activeTab === "limpar"}
+                  onClick={() => setActiveTab("limpar")}
+                  label="Limpar"
+                />
+                <TabButton
+                  icon={<Share2 className="w-4 h-4" />}
+                  active={activeTab === "export"}
+                  onClick={() => setActiveTab("export")}
+                  label="Compartilhar"
+                />
+              </>
+            )}
           </div>
         </header>
 
+        {/* Disponibilidade – sempre acessível */}
         {activeTab === "disponibilidade" && (
           <Card
             title={`Formulário de Disponibilidade – Semana ${weekIdSlash || "(definir)"}`}
@@ -296,13 +326,15 @@ export default function App() {
           </Card>
         )}
 
+        {/* Bater ponto – sempre acessível */}
         {activeTab === "baterponto" && (
           <Card title="Bater ponto" icon={<Cal className="w-5 h-5" />}>
             <PunchTab staff={state.staff} />
           </Card>
         )}
 
-        {activeTab === "escalar" && (
+        {/* A partir daqui, só aparece no modo admin */}
+        {!isColab && activeTab === "escalar" && (
           <Card title="Escalar" icon={<Cal className="w-5 h-5" />}>
             <SolverUI
               state={state}
@@ -313,7 +345,7 @@ export default function App() {
           </Card>
         )}
 
-        {activeTab === "limpar" && (
+        {!isColab && activeTab === "limpar" && (
           <Card title="Limpar respostas da semana" icon={<Trash2 className="w-5 h-5" />}>
             <ClearTab
               weekId={weekIdDash}
@@ -327,7 +359,7 @@ export default function App() {
           </Card>
         )}
 
-        {activeTab === "export" && (
+        {!isColab && activeTab === "export" && (
           <Card title="Link para Compartilhar" icon={<Share2 className="w-5 h-5" />}>
             <ShareExport state={state} weekId={weekIdDash} />
           </Card>
@@ -335,12 +367,13 @@ export default function App() {
 
         <div className="mt-6 text-xs text-gray-500 flex items-center gap-2">
           <RefreshCw className="w-4 h-4" /> Dados locais + servidor. Use “Escalar” → “Atualizar
-          respostas”.
+          respostas” (apenas no painel da gerência).
         </div>
       </div>
     </div>
   );
 }
+
 
 function TabButton({ label, active, onClick, icon }: TabButtonProps) {
   return (
