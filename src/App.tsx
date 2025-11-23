@@ -1,9 +1,16 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
-import { Trash2, Calendar as Cal, RefreshCw, ClipboardList, Share2, Copy } from "lucide-react";
+import {
+  Trash2,
+  Calendar as Cal,
+  RefreshCw,
+  ClipboardList,
+  Share2,
+  Copy,
+} from "lucide-react";
 
 type Staff = { id: string; name: string };
-type Day = { id: string; label: string; required: number; code: string };
+type Day = { id: string; label: string; code: string };
 type Rule = { id: string; a: string; b: string; kind: "must" | "never" };
 type Availability = Record<string, string[]>;
 type State = { staff: Staff[]; days: Day[]; rules: Rule[]; availability: Availability };
@@ -25,9 +32,9 @@ interface ShareExportProps {
 }
 interface SolverUIProps {
   state: State;
-  availability: Availability;          // disponibilidade vinda do servidor (ou local se vazio)
-  onRefresh: () => void;               // recarregar respostas do servidor
-  weekId: string;                      // para título/exportação
+  availability: Availability;
+  onRefresh: () => void;
+  weekId: string;
 }
 interface AvailabilityFormProps {
   state: State;
@@ -43,13 +50,11 @@ interface PunchTabProps {
 }
 
 const LS_KEY = "escala_fattoria_state_v4";
-const SYNC_ENDPOINT = "https://script.google.com/macros/s/AKfycbwQsmqSOmALernF48mfjTR6CGTdf9ycC-6g2AdexUcpA9Px-WxkYcfviUDTzo2WOEbFzw/exec";
+const SYNC_ENDPOINT =
+  "https://script.google.com/macros/s/AKfycbwQsmqSOmALernF48mfjTR6CGTdf9ycC-6g2AdexUcpA9Px-WxkYcfviUDTzo2WOEbFzw/exec";
 
 function id() {
   return Math.random().toString(36).slice(2, 10);
-}
-function byName(state: State, staffId: string) {
-  return state.staff.find((s) => s.id === staffId)?.name || "";
 }
 
 function formatDDMMYYYY_slash(dt: Date) {
@@ -79,25 +84,14 @@ function weekIdFromDate_dash(d: Date) {
 }
 
 const defaultState: State = {
-  staff: [
-    "Lauren",
-    "Marina",
-    "Ana",
-    "Leo",
-    "Nayara",
-    "Duda",
-    "Dani",
-    "Mariana",
-    "Gabi",
-    "Rodrigo",
-  ].map((n) => ({ id: id(), name: n })),
+  staff: [],
   days: [
-    { id: id(), label: "Quarta", required: 1, code: "qua" },
-    { id: id(), label: "Quinta", required: 1, code: "qui" },
-    { id: id(), label: "Sexta", required: 4, code: "sex" },
-    { id: id(), label: "Sábado", required: 5, code: "sab" },
-    { id: id(), label: "Domingo (Almoço)", required: 3, code: "dom_almoco" },
-    { id: id(), label: "Domingo (Noite)", required: 2, code: "dom_noite" },
+    { id: id(), label: "Quarta", code: "qua" },
+    { id: id(), label: "Quinta", code: "qui" },
+    { id: id(), label: "Sexta", code: "sex" },
+    { id: id(), label: "Sábado", code: "sab" },
+    { id: id(), label: "Domingo (Almoço)", code: "dom_almoco" },
+    { id: id(), label: "Domingo (Noite)", code: "dom_noite" },
   ],
   rules: [],
   availability: {},
@@ -119,27 +113,6 @@ function decodeConfig(b64: string) {
   return null;
 }
 
-// ---------- PRIORIDADES ----------
-const LOW_LAST = new Set(["Duda", "Dani", "Rodrigo"]); // últimas prioridades em qualquer dia
-const sundayOrder = ["Lauren", "Marina", "Leo", "Nayara"]; // ordem domingo
-const weekdayOrder = ["Lauren", "Marina", "Leo", "Ana", "Mariana"]; // outros dias (Ana e Mariana iguais)
-
-// ordena nomes por prioridade do dia (mantém todos os disponíveis)
-function sortByPriorityForDay(names: string[], dayCode: string): string[] {
-  const base = dayCode === "dom_almoco" || dayCode === "dom_noite" ? sundayOrder : weekdayOrder;
-  const rank = (nm: string) => {
-    if (LOW_LAST.has(nm)) return 10_000; // sempre por último
-    const i = base.indexOf(nm);
-    return i >= 0 ? i : 999; // quem não está explicitamente na lista vem depois
-  };
-  return [...names].sort((a, b) => {
-    const ra = rank(a),
-      rb = rank(b);
-    if (ra !== rb) return ra - rb;
-    return a.localeCompare(b, "pt-BR");
-  });
-}
-
 export default function App() {
   const [state, setState] = useState<State>(() => {
     try {
@@ -156,7 +129,6 @@ export default function App() {
   const [weekIdSlash, setWeekIdSlash] = useState<string>("");
   const [weekIdDash, setWeekIdDash] = useState<string>("");
 
-  // respostas vindas do servidor
   const [serverAvail, setServerAvail] = useState<Availability>({});
 
   const syncEnabled = !!SYNC_ENDPOINT;
@@ -194,13 +166,39 @@ export default function App() {
       localStorage.setItem(LS_KEY, JSON.stringify(state));
     } catch {}
   }, [state]);
+
   useEffect(() => {
     if (!selectedStaffId && state.staff.length) setSelectedStaffId(state.staff[0].id);
   }, [state.staff, selectedStaffId]);
 
+  // carrega colaboradores da planilha "Cadastro_colaboradores"
+  useEffect(() => {
+    async function loadStaff() {
+      try {
+        const url = `${SYNC_ENDPOINT}?action=staff`;
+        const resp = await fetch(url);
+        const data = await resp.json();
+        if (!data?.ok || !Array.isArray(data.names)) {
+          console.error("Resposta inválida em /staff", data);
+          return;
+        }
+        setState((prev) => {
+          const oldByName = new Map(prev.staff.map((s) => [s.name, s.id]));
+          const newStaff: Staff[] = data.names.map((name: string) => ({
+            id: oldByName.get(name) || id(),
+            name,
+          }));
+          return { ...prev, staff: newStaff };
+        });
+      } catch (err) {
+        console.error("Falha ao carregar colaboradores:", err);
+      }
+    }
+    loadStaff();
+  }, []);
+
   const update = (patch: Partial<State>) => setState((s) => ({ ...s, ...patch }));
 
-  // ---- Helpers p/ servidor ----
   function rowsToAvailability(rows: Array<{ staff: string; days: string[] }>): Availability {
     const nameToId = Object.fromEntries(state.staff.map((s) => [s.name, s.id] as const));
     const codeToId = Object.fromEntries(state.days.map((d) => [d.code, d.id] as const));
@@ -412,7 +410,7 @@ function AvailabilityForm({
             days: chosenCodes,
           }),
         });
-        // Em no-cors a resposta é 'opaque' e não pode ser lida; trate como sucesso
+        // no-cors -> resposta 'opaque'
         // @ts-ignore
         if ((resp as any)?.type === "opaque" || (resp as any)?.status === 0) {
           alert("Suas escolhas foram salvas.");
@@ -501,7 +499,7 @@ function PunchTab({ staff }: PunchTabProps) {
       if (seen.has(name)) continue;
       seen.add(name);
       const st = staff.find((s) => s.name === name);
-      const id = st ? st.id : `extra-${name}`;
+      const id = st ? s.id : `extra-${name}`;
       out.push({ id, label: name });
     }
     return out;
@@ -548,7 +546,6 @@ function PunchTab({ staff }: PunchTabProps) {
         headers: { "Content-Type": "text/plain;charset=utf-8" },
         body: JSON.stringify(payload),
       });
-      // Em no-cors a resposta é 'opaque'; trate como sucesso
       // @ts-ignore
       if ((resp as any)?.type === "opaque" || (resp as any)?.status === 0) {
         alert(`Ponto registrado para ${name} em ${dateStr}.`);
@@ -594,224 +591,96 @@ function PunchTab({ staff }: PunchTabProps) {
   );
 }
 
-// ======== SOLVER ========
-type SolveResult = {
-  ok: boolean;
-  assignments: Record<string, string[]>;
-  messages: string[];
-  availSorted: Record<string, string[]>; // disponíveis (ordenados) por diaId (ids)
-};
-
-function solve(state: State, availability: Availability): SolveResult {
-  const messages: string[] = [];
-  const assignments: Record<string, string[]> = {};
-  const availSorted: Record<string, string[]> = {};
-
-  const staffById = Object.fromEntries(state.staff.map((s) => [s.id, s] as const));
-  const nameOf = (sid: string) => staffById[sid]?.name || "";
-
-  // disponibilidade por dia (ids de staff)
-  const availPerDayIds: Record<string, string[]> = Object.fromEntries(
-    state.days.map((d) => {
-      const avail = state.staff
-        .filter((s) => (availability[s.id] || []).includes(d.id))
-        .map((s) => s.id);
-      return [d.id, avail];
-    })
-  );
-
-  // montar lista de disponíveis ordenados por prioridade
-  for (const day of state.days) {
-    const names = (availPerDayIds[day.id] || []).map(nameOf);
-    const ordered = sortByPriorityForDay(names, day.code);
-    // voltar de nome -> id
-    const idsOrdered = ordered
-      .map((nm) => state.staff.find((s) => s.name === nm)?.id || "")
-      .filter(Boolean);
-    availSorted[day.id] = idsOrdered;
-  }
-
-  // sugestão automática
-  for (const day of state.days) {
-    const poolIds = availSorted[day.id] || [];
-    const poolNames = poolIds.map(nameOf);
-    const target = day.required;
-
-    let chosen: string[] = [];
-
-    // DOMINGOS: incluir Gabi SEM CONTAR no requerido
-    if ((day.code === "dom_almoco" || day.code === "dom_noite") && poolNames.includes("Gabi")) {
-      const gid = state.staff.find((s) => s.name === "Gabi")!.id;
-      chosen.push(gid);
-    }
-
-    for (const sid of poolIds) {
-      const nm = nameOf(sid);
-      if (nm === "Gabi" && (day.code === "dom_almoco" || day.code === "dom_noite")) continue; // Gabi já extra
-      if (chosen.includes(sid)) continue;
-      if (chosen.filter((x) => nameOf(x) !== "Gabi").length < target) {
-        chosen.push(sid);
-      }
-    }
-
-    const nonGabi = chosen.filter((x) => nameOf(x) !== "Gabi").slice(0, target);
-    const final = chosen.find((x) => nameOf(x) === "Gabi")
-      ? Array.from(new Set([state.staff.find((s) => s.name === "Gabi")!.id, ...nonGabi]))
-      : nonGabi;
-
-    assignments[day.id] = final;
-  }
-
-  const ok = state.days.every(
-    (d) =>
-      (assignments[d.id] || []).filter(
-        (x) => state.staff.find((s) => s.id === x)?.name !== "Gabi"
-      ).length === d.required
-  );
-
-  for (const d of state.days) {
-    const avail = (availSorted[d.id] || []).length;
-    const namesAvail = (availSorted[d.id] || [])
-      .map((id) => state.staff.find((s) => s.id === id)?.name || id)
-      .join(", ");
-    messages.push(`Disponíveis ${d.label}: ${namesAvail || "—"}`);
-    if (avail < d.required)
-      messages.push(`ℹ️ ${d.label}: só ${avail} disponíveis para ${d.required} vagas.`);
-  }
-
-  return { ok, assignments, messages, availSorted };
-}
+// ======== SOLVER NOVO (15 boxes, sem prioridade) ========
+const SLOTS_PER_DAY = 15;
 
 function SolverUI({ state, availability, onRefresh, weekId }: SolverUIProps) {
-  const res = useMemo(() => solve(state, availability), [state, availability]);
-  const { assignments, availSorted } = res;
-
-  // Quem respondeu
   const respondedIds = Object.keys(availability || {});
   const respondedSet = new Set(respondedIds);
   const missing = state.staff.filter((s) => !respondedSet.has(s.id)).map((s) => s.name);
   const total = state.staff.length;
 
-  // estado local para confirmação final (comboboxes)
-  const [confirm, setConfirm] = useState<Record<string, string[]>>(() => {
+  const labelOf = (sid: string) => state.staff.find((s) => s.id === sid)?.name || "";
+
+  const availNamesByDay: Record<string, string[]> = useMemo(() => {
+    const out: Record<string, string[]> = {};
+    for (const day of state.days) {
+      const names: string[] = [];
+      for (const s of state.staff) {
+        const daysOfS = availability[s.id] || [];
+        if (daysOfS.includes(day.id)) {
+          names.push(s.name);
+        }
+      }
+      names.sort((a, b) => a.localeCompare(b, "pt-BR"));
+      out[day.id] = names;
+    }
+    return out;
+  }, [state.days, state.staff, availability]);
+
+  const selectOptionsByDay: Record<string, string[]> = useMemo(() => {
+    const out: Record<string, string[]> = {};
+    for (const day of state.days) {
+      const ids: string[] = [];
+      for (const s of state.staff) {
+        const daysOfS = availability[s.id] || [];
+        if (daysOfS.includes(day.id)) {
+          ids.push(s.id);
+        }
+      }
+      out[day.id] = ids;
+    }
+    return out;
+  }, [state.days, state.staff, availability]);
+
+  const [selects, setSelects] = useState<Record<string, string[]>>(() => {
     const init: Record<string, string[]> = {};
     for (const d of state.days) {
-      const sugg = (assignments[d.id] || []).filter(
-        (x) => state.staff.find((s) => s.id === x)?.name !== "Gabi"
-      );
-      const target = d.required;
-      const arr = Array.from({ length: target }, (_, i) => sugg[i] || "");
-      init[d.id] = arr;
+      init[d.id] = Array(SLOTS_PER_DAY).fill("");
     }
     return init;
   });
 
-  const [extraByDay, setExtraByDay] = useState<Record<string, string>>({});
-
   useEffect(() => {
-    const init: Record<string, string[]> = {};
-    for (const d of state.days) {
-      const sugg = (assignments[d.id] || []).filter(
-        (x) => state.staff.find((s) => s.id === x)?.name !== "Gabi"
-      );
-      const target = d.required;
-      const arr = Array.from({ length: target }, (_, i) => sugg[i] || "");
-      init[d.id] = arr;
-    }
-    setConfirm(init);
-  }, [availability, state.days, assignments]);
-
-  useEffect(() => {
-    const initExtra: Record<string, string> = {};
-    for (const d of state.days) {
-      initExtra[d.id] = "";
-    }
-    setExtraByDay(initExtra);
+    setSelects((prev) => {
+      const next: Record<string, string[]> = {};
+      for (const d of state.days) {
+        const old = prev[d.id] || [];
+        const arr = Array.from({ length: SLOTS_PER_DAY }, (_, i) => old[i] || "");
+        next[d.id] = arr;
+      }
+      return next;
+    });
   }, [state.days]);
 
-  const setConfirmCell = (dayId: string, idx: number, val: string) => {
-    setConfirm((prev) => {
+  const setSelectCell = (dayId: string, idx: number, val: string) => {
+    setSelects((prev) => {
       const arr = [...(prev[dayId] || [])];
       arr[idx] = val;
       return { ...prev, [dayId]: arr };
     });
   };
 
-  const setExtraForDay = (dayId: string, val: string) => {
-    setExtraByDay((prev) => ({ ...prev, [dayId]: val }));
-  };
-
-  const labelOf = (sid: string) => state.staff.find((s) => s.id === sid)?.name || "";
-
-  // lista de disponíveis (ordenados) por nome (para exibir)
-  const availNamesByDay: Record<string, string[]> = Object.fromEntries(
-    state.days.map((d) => {
-      const arr = (availSorted[d.id] || []).map(labelOf);
-      return [d.id, arr];
-    })
-  );
-
-  // opções para os selects finais (somente disponíveis; em domingos, excluir Gabi dos slots)
-  const selectOptionsByDay: Record<string, { id: string; name: string }[]> = Object.fromEntries(
-    state.days.map((d) => {
-      const ids = (availSorted[d.id] || []).filter((sid) => {
-        const nm = labelOf(sid);
-        if ((d.code === "dom_almoco" || d.code === "dom_noite") && nm === "Gabi") return false;
-        return true;
-      });
-      return [
-        d.id,
-        ids.map((sid) => ({
-          id: sid,
-          name: labelOf(sid),
-        })),
-      ];
-    })
-  );
-
-  const hasGabi = (dayId: string) => {
-    const nm = (assignments[dayId] || []).map(labelOf);
-    return nm.includes("Gabi");
-  };
-
+  const [showFinal, setShowFinal] = useState(false);
   const weekLabel = useMemo(
     () => (weekId ? weekId.split("-").join("/") : "-"),
     [weekId]
   );
 
-  // monta linhas da escalação final
-  const finalRows = useMemo(
-    () =>
-      state.days.map((day) => {
-        const selectedIds = (confirm[day.id] || []).filter(Boolean);
-        const namesOrdered: string[] = [];
-
-        const addName = (nm: string) => {
-          if (nm && !namesOrdered.includes(nm)) namesOrdered.push(nm);
-        };
-
-        // selecionados nos slots
-        selectedIds.forEach((sid) => addName(labelOf(sid)));
-
-        // Gabi extra automática nos domingos (se presente na sugestão)
-        const isDom = day.code === "dom_almoco" || day.code === "dom_noite";
-        if (isDom && hasGabi(day.id)) {
-          addName("Gabi");
-        }
-
-        // extra manual escolhido
-        const extraId = extraByDay[day.id];
-        if (extraId) {
-          addName(labelOf(extraId));
-        }
-
-        return {
-          dayLabel: day.label,
-          names: namesOrdered,
-        };
-      }),
-    [state.days, confirm, extraByDay, assignments]
-  );
+  const finalRows = useMemo(() => {
+    if (!showFinal) return [];
+    return state.days.map((day) => {
+      const arr = selects[day.id] || [];
+      const names = arr
+        .filter(Boolean)
+        .map((sid) => labelOf(sid))
+        .filter((nm, idx, all) => nm && all.indexOf(nm) === idx);
+      return {
+        dayLabel: day.label,
+        names,
+      };
+    });
+  }, [showFinal, selects, state.days]);
 
   return (
     <div className="space-y-6">
@@ -840,7 +709,7 @@ function SolverUI({ state, availability, onRefresh, weekId }: SolverUIProps) {
         )}
       </div>
 
-      {/* Tabela de DISPONIBILIDADE */}
+      {/* TABELA DE DISPONIBILIDADE */}
       <div>
         <h3 className="font-semibold text-base mb-2">Tabela de Disponibilidade</h3>
         <div className="overflow-auto">
@@ -848,9 +717,8 @@ function SolverUI({ state, availability, onRefresh, weekId }: SolverUIProps) {
             <thead className="bg-gray-100">
               <tr>
                 <th className="border px-3 py-2 text-left">Dia/Turno</th>
-                <th className="border px-3 py-2 text-left">Requeridos</th>
                 <th className="border px-3 py-2 text-left">
-                  Disponíveis (na ordem de prioridade)
+                  Disponíveis (ordem alfabética)
                 </th>
               </tr>
             </thead>
@@ -860,19 +728,12 @@ function SolverUI({ state, availability, onRefresh, weekId }: SolverUIProps) {
                 return (
                   <tr key={day.id}>
                     <td className="border px-3 py-2">{day.label}</td>
-                    <td className="border px-3 py-2">{day.required}</td>
                     <td className="border px-3 py-2">
                       {names.length ? (
                         names.join(", ")
                       ) : (
                         <span className="text-red-600">— ninguém disponível</span>
                       )}
-                      {(day.code === "dom_almoco" || day.code === "dom_noite") &&
-                        hasGabi(day.id) && (
-                          <span className="ml-2 text-xs text-gray-600">
-                            (Gabi será adicionada automaticamente como extra)
-                          </span>
-                        )}
                     </td>
                   </tr>
                 );
@@ -882,7 +743,7 @@ function SolverUI({ state, availability, onRefresh, weekId }: SolverUIProps) {
         </div>
       </div>
 
-      {/* Tabela de SELEÇÃO */}
+      {/* TABELA DE SELEÇÃO */}
       <div>
         <h3 className="font-semibold text-base mb-2">Tabela de Seleção</h3>
         <div className="overflow-auto">
@@ -890,63 +751,36 @@ function SolverUI({ state, availability, onRefresh, weekId }: SolverUIProps) {
             <thead className="bg-gray-100">
               <tr>
                 <th className="border px-3 py-2 text-left">Dia/Turno</th>
-                <th className="border px-3 py-2 text-left">Escalação</th>
+                <th className="border px-3 py-2 text-left">Escalação (até 15 nomes)</th>
               </tr>
             </thead>
             <tbody>
               {state.days.map((day) => {
-                const options = selectOptionsByDay[day.id] || [];
-                const slots = confirm[day.id] || Array.from({ length: day.required }, () => "");
-                const extraVal = extraByDay[day.id] || "";
-                const extraOptionsIds = availSorted[day.id] || [];
+                const slotValues = selects[day.id] || Array(SLOTS_PER_DAY).fill("");
+                const optionIds = selectOptionsByDay[day.id] || [];
                 return (
                   <tr key={day.id}>
                     <td className="border px-3 py-2 align-top">{day.label}</td>
                     <td className="border px-3 py-2">
-                      <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-2">
-                        {slots.map((val, idx) => (
+                      <div className="grid grid-cols-3 md:grid-cols-5 gap-2">
+                        {slotValues.map((val, idx) => (
                           <select
                             key={idx}
-                            className="input"
+                            className="input text-xs py-1 px-2"
                             value={val}
                             onChange={(e) =>
-                              setConfirmCell(day.id, idx, e.target.value)
+                              setSelectCell(day.id, idx, e.target.value)
                             }
                           >
-                            <option value="">— Selecionar —</option>
-                            {options.map((opt) => (
-                              <option key={opt.id} value={opt.id}>
-                                {opt.name}
+                            <option value="">- Selecionar -</option>
+                            {optionIds.map((sid) => (
+                              <option key={sid} value={sid}>
+                                {labelOf(sid)}
                               </option>
                             ))}
                           </select>
                         ))}
                       </div>
-
-                      <div className="mt-2">
-                        <label className="text-xs text-gray-600 block mb-1">
-                          Extra (opcional)
-                        </label>
-                        <select
-                          className="input max-w-xs"
-                          value={extraVal}
-                          onChange={(e) => setExtraForDay(day.id, e.target.value)}
-                        >
-                          <option value="">— Nenhum —</option>
-                          {extraOptionsIds.map((sid) => (
-                            <option key={sid} value={sid}>
-                              {labelOf(sid)}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-
-                      {(day.code === "dom_almoco" || day.code === "dom_noite") &&
-                        hasGabi(day.id) && (
-                          <div className="text-xs text-gray-600 mt-1">
-                            Obs.: Gabi será adicionada como extra (não ocupa vaga).
-                          </div>
-                        )}
                     </td>
                   </tr>
                 );
@@ -956,36 +790,46 @@ function SolverUI({ state, availability, onRefresh, weekId }: SolverUIProps) {
         </div>
       </div>
 
-      {/* Tabela de ESCALAÇÃO FINAL */}
-      <div>
-        <h3 className="font-semibold text-base mb-2">
-          Escalação Final da Semana {weekLabel}
-        </h3>
-        <div className="overflow-auto">
-          <table className="min-w-full border text-sm">
-            <thead className="bg-gray-100">
-              <tr>
-                <th className="border px-3 py-2 text-left">Dia/Turno</th>
-                <th className="border px-3 py-2 text-left">Escalação Final</th>
-              </tr>
-            </thead>
-            <tbody>
-              {finalRows.map((row, idx) => (
-                <tr key={idx}>
-                  <td className="border px-3 py-2">{row.dayLabel}</td>
-                  <td className="border px-3 py-2">
-                    {row.names.length ? row.names.join(", ") : "—"}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+      {/* BOTÃO + ESCALAÇÃO FINAL */}
+      <div className="space-y-3">
+        <button
+          onClick={() => setShowFinal(true)}
+          className="btn btn-primary text-sm"
+        >
+          Gerar Escalação Final
+        </button>
+
+        {showFinal && (
+          <div>
+            <h3 className="font-semibold text-base mb-2">
+              Escalação Final da Semana {weekLabel}
+            </h3>
+            <div className="overflow-auto">
+              <table className="min-w-full border text-sm">
+                <thead className="bg-gray-100">
+                  <tr>
+                    <th className="border px-3 py-2 text-left">Dia/Turno</th>
+                    <th className="border px-3 py-2 text-left">Escalação Final</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {finalRows.map((row, idx) => (
+                    <tr key={idx}>
+                      <td className="border px-3 py-2">{row.dayLabel}</td>
+                      <td className="border px-3 py-2">
+                        {row.names.length ? row.names.join(", ") : "—"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
 }
-
 
 function ShareExport({ state, weekId }: ShareExportProps) {
   const [copied, setCopied] = useState(false);
@@ -1063,4 +907,5 @@ function ClearTab({
     </div>
   );
 }
+
 
