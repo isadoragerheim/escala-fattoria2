@@ -5,8 +5,6 @@ import {
   Calendar as Cal,
   RefreshCw,
   ClipboardList,
-  Share2,
-  Copy,
 } from "lucide-react";
 
 type Staff = { id: string; name: string };
@@ -26,14 +24,14 @@ interface CardProps {
   icon: React.ReactNode;
   children: React.ReactNode;
 }
-interface ShareExportProps {
-  state: State;
-  weekId: string;
-}
 interface SolverUIProps {
   state: State;
   availability: Availability;
   onRefresh: () => void;
+  weekId: string;
+}
+interface ShareExportProps {
+  state: State;
   weekId: string;
 }
 interface AvailabilityFormProps {
@@ -128,7 +126,7 @@ export default function App() {
   const [mode, setMode] = useState<Mode>("admin");
 
   const [activeTab, setActiveTab] = useState<
-    "disponibilidade" | "escalar" | "presenca" | "comissao" | "limpar" | "export"
+    "disponibilidade" | "escalar" | "presenca" | "comissao" | "limpar"
   >("disponibilidade");
 
   const [selectedStaffId, setSelectedStaffId] = useState<string>("");
@@ -262,10 +260,6 @@ export default function App() {
         <header className="flex items-center justify-between mb-4">
           <div>
             <h1 className="text-2xl font-bold">Escalação Semanal Fattoria</h1>
-            <p className="text-sm text-gray-600">
-              Preencha disponibilidades, registre presença e, no painel da gerência,
-              organize a escala e comissões.
-            </p>
           </div>
           <div className="flex gap-2 overflow-auto">
             {/* 1) Sempre visível: Disponibilidade */}
@@ -291,31 +285,23 @@ export default function App() {
               onClick={() => setActiveTab("presenca")}
               label="Registrar presença"
             />
-            {/* 4) Comissão do dia – só admin */}
+            {/* 4) Comissão e Pagamento – só admin */}
             {!isColab && (
               <TabButton
                 icon={<Cal className="w-4 h-4" />}
                 active={activeTab === "comissao"}
                 onClick={() => setActiveTab("comissao")}
-                label="Comissão do dia"
+                label="Comissão e Pagamento"
               />
             )}
-            {/* 5 e 6) Limpar / Compartilhar – só admin */}
+            {/* 5) Limpar – só admin */}
             {!isColab && (
-              <>
-                <TabButton
-                  icon={<Trash2 className="w-4 h-4" />}
-                  active={activeTab === "limpar"}
-                  onClick={() => setActiveTab("limpar")}
-                  label="Limpar"
-                />
-                <TabButton
-                  icon={<Share2 className="w-4 h-4" />}
-                  active={activeTab === "export"}
-                  onClick={() => setActiveTab("export")}
-                  label="Compartilhar"
-                />
-              </>
+              <TabButton
+                icon={<Trash2 className="w-4 h-4" />}
+                active={activeTab === "limpar"}
+                onClick={() => setActiveTab("limpar")}
+                label="Limpar"
+              />
             )}
           </div>
         </header>
@@ -357,9 +343,9 @@ export default function App() {
           </Card>
         )}
 
-        {/* Comissão do dia – apenas admin */}
+        {/* Comissão e Pagamento – apenas admin */}
         {!isColab && activeTab === "comissao" && (
-          <Card title="Comissão do dia" icon={<Cal className="w-5 h-5" />}>
+          <Card title="Comissão e Pagamento" icon={<Cal className="w-5 h-5" />}>
             <CommissionTab />
           </Card>
         )}
@@ -376,13 +362,6 @@ export default function App() {
                 }))
               }
             />
-          </Card>
-        )}
-
-        {/* Compartilhar – apenas admin */}
-        {!isColab && activeTab === "export" && (
-          <Card title="Link para Compartilhar" icon={<Share2 className="w-5 h-5" />}>
-            <ShareExport state={state} weekId={weekIdDash} />
           </Card>
         )}
 
@@ -1202,11 +1181,14 @@ function SolverUI({ state, availability, onRefresh, weekId }: SolverUIProps) {
   );
 }
 
-// ======== COMISSÃO DO DIA ========
+// ======== COMISSÃO E PAGAMENTOS ========
 function CommissionTab() {
   const [dateRaw, setDateRaw] = useState<string>("");
   const [turno, setTurno] = useState<string>("Almoço");
   const [valor, setValor] = useState<string>("");
+
+  const [rangeStartRaw, setRangeStartRaw] = useState<string>("");
+  const [rangeEndRaw, setRangeEndRaw] = useState<string>("");
 
   const formatDateForPayload = (raw: string) => {
     if (!raw) return "";
@@ -1266,80 +1248,140 @@ function CommissionTab() {
     }
   };
 
-  return (
-    <div className="space-y-4">
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-        <div className="space-y-1">
-          <label className="text-sm text-gray-600">Data</label>
-          <input
-            type="date"
-            className="input w-full"
-            value={dateRaw}
-            onChange={(e) => setDateRaw(e.target.value)}
-          />
-        </div>
-        <div className="space-y-1">
-          <label className="text-sm text-gray-600">Turno</label>
-          <select
-            className="input w-full"
-            value={turno}
-            onChange={(e) => setTurno(e.target.value)}
-          >
-            <option value="Almoço">Almoço</option>
-            <option value="Noite">Noite</option>
-          </select>
-        </div>
-        <div className="space-y-1">
-          <label className="text-sm text-gray-600">Valor da comissão (R$)</label>
-          <input
-            type="number"
-            step="0.01"
-            className="input w-full"
-            value={valor}
-            onChange={(e) => setValor(e.target.value)}
-          />
-        </div>
-      </div>
+  const handleGeneratePayments = async () => {
+    if (!rangeStartRaw || !rangeEndRaw) {
+      alert("Selecione a data de início e fim do período.");
+      return;
+    }
 
-      <button onClick={handleSaveCommission} className="btn btn-primary">
-        Registrar comissão do dia
-      </button>
+    const startStr = formatDateForPayload(rangeStartRaw);
+    const endStr = formatDateForPayload(rangeEndRaw);
+    if (!startStr || !endStr) {
+      alert("Datas inválidas.");
+      return;
+    }
 
-      <div className="text-xs text-gray-500">
-        As comissões serão registradas em uma planilha no Drive (via Apps Script) com
-        data, turno e valor lançados.
-      </div>
-    </div>
-  );
-}
+    if (!SYNC_ENDPOINT) {
+      alert("Nenhum endpoint de sincronização configurado.");
+      return;
+    }
 
-function ShareExport({ state, weekId }: ShareExportProps) {
-  const [copied, setCopied] = useState(false);
-  const base =
-    typeof window !== "undefined" ? window.location.origin + window.location.pathname : "";
-  const conf = encodeConfig(state);
-  const shareLink = `${base}?s=${encodeURIComponent(conf)}&w=${encodeURIComponent(
-    weekId || ""
-  )}`;
-  const copy = async (txt: string) => {
+    const payload = {
+      action: "payments_report",
+      startDate: startStr,
+      endDate: endStr,
+    };
+
     try {
-      await navigator.clipboard.writeText(txt);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1200);
-    } catch {}
+      const resp = await fetch(SYNC_ENDPOINT, {
+        method: "POST",
+        mode: "no-cors",
+        headers: { "Content-Type": "text/plain;charset=utf-8" },
+        body: JSON.stringify(payload),
+      });
+      // @ts-ignore
+      if ((resp as any)?.type === "opaque" || (resp as any)?.status === 0) {
+        alert("Relatórios de pagamentos solicitados. Verifique a pasta 'Pagamentos' no Drive.");
+        return;
+      }
+      if (!resp.ok) {
+        const txt = await resp.text().catch(() => "");
+        alert(
+          `Falha ao gerar relatórios de pagamentos (HTTP ${resp.status}). ${txt.slice(
+            0,
+            180
+          )}`
+        );
+        return;
+      }
+      alert("Relatórios de pagamentos gerados.");
+    } catch (err: any) {
+      alert(`Não foi possível gerar os relatórios de pagamentos. Erro: ${String(err)}`);
+    }
   };
 
   return (
-    <div className="space-y-3">
-      <div className="text-sm text-gray-700">
-        Envie este link para carregar <b>nomes, dias/turnos e regras</b> (sem disponibilidades):
-      </div>
-      <div className="flex flex-col sm:flex-row gap-2">
-        <input readOnly value={shareLink} className="input w-full" />
-        <button onClick={() => copy(shareLink)} className="btn btn-primary">
-          <Copy className="w-4 h-4" />
-          {copied ? "Copiado!" : "Copiar"}
+    <div className="space-y-6">
+      {/* Seção Comissão */}
+      <div className="space-y-4 border rounded-xl p-3 bg-white">
+        <h3 className="font-semibold text-base">Registro de Comissão do Dia</h3>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div className="space-y-1">
+            <label className="text-sm text-gray-600">Data</label>
+            <input
+              type="date"
+              className="input w-full"
+              value={dateRaw}
+              onChange={(e) => setDateRaw(e.target.value)}
+            />
+          </div>
+          <div className="space-y-1">
+            <label className="text-sm text-gray-600">Turno</label>
+            <select
+              className="input w-full"
+              value={turno}
+              onChange={(e) => setTurno(e.target.value)}
+            >
+              <option value="Almoço">Almoço</option>
+              <option value="Noite">Noite</option>
+            </select>
+          </div>
+          <div className="space-y-1">
+            <label className="text-sm text-gray-600">Valor da comissão (R$)</label>
+            <input
+              type="number"
+              step="0.01"
+              className="input w-full"
+              value={valor}
+              onChange={(e) => setValor(e.target.value)}
+            />
+          </div>
+        </div>
+
+        <button onClick={handleSaveCommission} className="btn btn-primary">
+          Registrar comissão do dia
         </button>
+
+        <div className="text-xs text-gray-500">
+          As comissões são registradas em uma planilha no Drive chamada{" "}
+          <b>"Registro das Comissões Diárias"</b>, com data, turno e valor.
+        </div>
+      </div>
+
+      {/* Seção Pagamentos */}
+      <div className="space-y-4 border rounded-xl p-3 bg-white">
+        <h3 className="font-semibold text-base">Pagamentos</h3>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="space-y-1">
+            <label className="text-sm text-gray-600">Data inicial</label>
+            <input
+              type="date"
+              className="input w-full"
+              value={rangeStartRaw}
+              onChange={(e) => setRangeStartRaw(e.target.value)}
+            />
+          </div>
+          <div className="space-y-1">
+            <label className="text-sm text-gray-600">Data final</label>
+            <input
+              type="date"
+              className="input w-full"
+              value={rangeEndRaw}
+              onChange={(e) => setRangeEndRaw(e.target.value)}
+            />
+          </div>
+        </div>
+
+        <button onClick={handleGeneratePayments} className="btn btn-primary">
+          Gerar relatórios de Pagamentos
+        </button>
+
+        <div className="text-xs text-gray-500">
+          Os relatórios em PDF serão gerados para cada colaborador na pasta{" "}
+          <b>Pagamentos</b> do Drive, dentro de uma pasta{" "}
+          <b>Relatórios [período]</b>, contendo o detalhamento de diárias, comissão,
+          transporte e valor total a pagar.
+        </div>
       </div>
     </div>
   );
