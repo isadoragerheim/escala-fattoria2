@@ -30,10 +30,6 @@ interface SolverUIProps {
   onRefresh: () => void;
   weekId: string;
 }
-interface ShareExportProps {
-  state: State;
-  weekId: string;
-}
 interface AvailabilityFormProps {
   state: State;
   update: (p: Partial<State>) => void;
@@ -674,7 +670,7 @@ function PunchTab({ staff }: PunchTabProps) {
       });
       // @ts-ignore
       if ((resp as any)?.type === "opaque" || (resp as any)?.status === 0) {
-        alert(`Presença registrada para ${name} em ${dateStr}.`);
+        alert(`Presença registrado para ${name} em ${dateStr}.`);
         return;
       }
       if (!resp.ok) {
@@ -1181,14 +1177,14 @@ function SolverUI({ state, availability, onRefresh, weekId }: SolverUIProps) {
   );
 }
 
-// ======== COMISSÃO E PAGAMENTOS ========
+// ======== COMISSÃO E PAGAMENTO ========
 function CommissionTab() {
   const [dateRaw, setDateRaw] = useState<string>("");
   const [turno, setTurno] = useState<string>("Almoço");
   const [valor, setValor] = useState<string>("");
 
-  const [rangeStartRaw, setRangeStartRaw] = useState<string>("");
-  const [rangeEndRaw, setRangeEndRaw] = useState<string>("");
+  const [startRaw, setStartRaw] = useState<string>("");
+  const [endRaw, setEndRaw] = useState<string>("");
 
   const formatDateForPayload = (raw: string) => {
     if (!raw) return "";
@@ -1248,14 +1244,13 @@ function CommissionTab() {
     }
   };
 
-  const handleGeneratePayments = async () => {
-    if (!rangeStartRaw || !rangeEndRaw) {
-      alert("Selecione a data de início e fim do período.");
+  const handlePaymentsReport = async () => {
+    if (!startRaw || !endRaw) {
+      alert("Selecione data inicial e final.");
       return;
     }
-
-    const startStr = formatDateForPayload(rangeStartRaw);
-    const endStr = formatDateForPayload(rangeEndRaw);
+    const startStr = formatDateForPayload(startRaw);
+    const endStr = formatDateForPayload(endRaw);
     if (!startStr || !endStr) {
       alert("Datas inválidas.");
       return;
@@ -1281,7 +1276,7 @@ function CommissionTab() {
       });
       // @ts-ignore
       if ((resp as any)?.type === "opaque" || (resp as any)?.status === 0) {
-        alert("Relatórios de pagamentos solicitados. Verifique a pasta 'Pagamentos' no Drive.");
+        alert("Relatórios de pagamentos gerados (planilhas por colaborador).");
         return;
       }
       if (!resp.ok) {
@@ -1294,17 +1289,17 @@ function CommissionTab() {
         );
         return;
       }
-      alert("Relatórios de pagamentos gerados.");
+      alert("Relatórios de pagamentos gerados (planilhas por colaborador).");
     } catch (err: any) {
-      alert(`Não foi possível gerar os relatórios de pagamentos. Erro: ${String(err)}`);
+      alert(`Não foi possível gerar os relatórios. Erro: ${String(err)}`);
     }
   };
 
   return (
     <div className="space-y-6">
-      {/* Seção Comissão */}
-      <div className="space-y-4 border rounded-xl p-3 bg-white">
-        <h3 className="font-semibold text-base">Registro de Comissão do Dia</h3>
+      {/* Seção Comissão do dia */}
+      <div className="border rounded-xl p-4 bg-white space-y-4">
+        <h3 className="font-semibold text-base">Comissão do dia</h3>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <div className="space-y-1">
             <label className="text-sm text-gray-600">Data</label>
@@ -1343,13 +1338,14 @@ function CommissionTab() {
         </button>
 
         <div className="text-xs text-gray-500">
-          As comissões são registradas em uma planilha no Drive chamada{" "}
-          <b>"Registro das Comissões Diárias"</b>, com data, turno e valor.
+          As comissões são registradas na planilha{" "}
+          <span className="font-semibold">"Registro das Comissões Diárias"</span>, com
+          data, turno e valor total da comissão daquele dia/turno.
         </div>
       </div>
 
       {/* Seção Pagamentos */}
-      <div className="space-y-4 border rounded-xl p-3 bg-white">
+      <div className="border rounded-xl p-4 bg-white space-y-4">
         <h3 className="font-semibold text-base">Pagamentos</h3>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div className="space-y-1">
@@ -1357,8 +1353,8 @@ function CommissionTab() {
             <input
               type="date"
               className="input w-full"
-              value={rangeStartRaw}
-              onChange={(e) => setRangeStartRaw(e.target.value)}
+              value={startRaw}
+              onChange={(e) => setStartRaw(e.target.value)}
             />
           </div>
           <div className="space-y-1">
@@ -1366,21 +1362,20 @@ function CommissionTab() {
             <input
               type="date"
               className="input w-full"
-              value={rangeEndRaw}
-              onChange={(e) => setRangeEndRaw(e.target.value)}
+              value={endRaw}
+              onChange={(e) => setEndRaw(e.target.value)}
             />
           </div>
         </div>
 
-        <button onClick={handleGeneratePayments} className="btn btn-primary">
+        <button onClick={handlePaymentsReport} className="btn btn-primary">
           Gerar relatórios de Pagamentos
         </button>
 
         <div className="text-xs text-gray-500">
-          Os relatórios em PDF serão gerados para cada colaborador na pasta{" "}
-          <b>Pagamentos</b> do Drive, dentro de uma pasta{" "}
-          <b>Relatórios [período]</b>, contendo o detalhamento de diárias, comissão,
-          transporte e valor total a pagar.
+          Será criada uma pasta <b>"Pagamentos"</b> dentro da pasta principal, e dentro
+          dela uma pasta <b>"Relatórios dd-mm-yyyy - dd-mm-yyyy"</b> contendo uma
+          planilha por colaborador com o detalhamento dos cálculos de pagamento.
         </div>
       </div>
     </div>
