@@ -128,7 +128,7 @@ export default function App() {
   const [mode, setMode] = useState<Mode>("admin");
 
   const [activeTab, setActiveTab] = useState<
-    "disponibilidade" | "baterponto" | "escalar" | "limpar" | "export"
+    "disponibilidade" | "escalar" | "presenca" | "comissao" | "limpar" | "export"
   >("disponibilidade");
 
   const [selectedStaffId, setSelectedStaffId] = useState<string>("");
@@ -155,7 +155,7 @@ export default function App() {
 
     if (m === "colab") {
       setMode("colab");
-      setActiveTab("disponibilidade"); // garante que abra na aba de disponibilidade
+      setActiveTab("disponibilidade");
     } else if (m === "admin") {
       setMode("admin");
     }
@@ -263,34 +263,46 @@ export default function App() {
           <div>
             <h1 className="text-2xl font-bold">Escalação Semanal Fattoria</h1>
             <p className="text-sm text-gray-600">
-              Preencha disponibilidades no celular, bata ponto e, no painel da gerência,
-              organize a escala.
+              Preencha disponibilidades, registre presença e, no painel da gerência,
+              organize a escala e comissões.
             </p>
           </div>
           <div className="flex gap-2 overflow-auto">
-            {/* Sempre visível: Disponibilidade */}
+            {/* 1) Sempre visível: Disponibilidade */}
             <TabButton
               icon={<ClipboardList className="w-4 h-4" />}
               active={activeTab === "disponibilidade"}
               onClick={() => setActiveTab("disponibilidade")}
               label="Disponibilidade"
             />
-            {/* Bater ponto – pode ser usado tanto por colaborador quanto por admin */}
+            {/* 2) Escalar – só admin */}
+            {!isColab && (
+              <TabButton
+                icon={<Cal className="w-4 h-4" />}
+                active={activeTab === "escalar"}
+                onClick={() => setActiveTab("escalar")}
+                label="Escalar"
+              />
+            )}
+            {/* 3) Registrar presença – visível para todos */}
             <TabButton
               icon={<Cal className="w-4 h-4" />}
-              active={activeTab === "baterponto"}
-              onClick={() => setActiveTab("baterponto")}
-              label="Bater ponto"
+              active={activeTab === "presenca"}
+              onClick={() => setActiveTab("presenca")}
+              label="Registrar presença"
             />
-            {/* As abas abaixo só aparecem no modo admin */}
+            {/* 4) Comissão do dia – só admin */}
+            {!isColab && (
+              <TabButton
+                icon={<Cal className="w-4 h-4" />}
+                active={activeTab === "comissao"}
+                onClick={() => setActiveTab("comissao")}
+                label="Comissão do dia"
+              />
+            )}
+            {/* 5 e 6) Limpar / Compartilhar – só admin */}
             {!isColab && (
               <>
-                <TabButton
-                  icon={<Cal className="w-4 h-4" />}
-                  active={activeTab === "escalar"}
-                  onClick={() => setActiveTab("escalar")}
-                  label="Escalar"
-                />
                 <TabButton
                   icon={<Trash2 className="w-4 h-4" />}
                   active={activeTab === "limpar"}
@@ -326,14 +338,7 @@ export default function App() {
           </Card>
         )}
 
-        {/* Bater ponto – sempre acessível */}
-        {activeTab === "baterponto" && (
-          <Card title="Bater ponto" icon={<Cal className="w-5 h-5" />}>
-            <PunchTab staff={state.staff} />
-          </Card>
-        )}
-
-        {/* A partir daqui, só aparece no modo admin */}
+        {/* Escalar – apenas admin */}
         {!isColab && activeTab === "escalar" && (
           <Card title="Escalar" icon={<Cal className="w-5 h-5" />}>
             <SolverUI
@@ -345,6 +350,21 @@ export default function App() {
           </Card>
         )}
 
+        {/* Registrar presença – sempre acessível */}
+        {activeTab === "presenca" && (
+          <Card title="Registrar presença" icon={<Cal className="w-5 h-5" />}>
+            <PunchTab staff={state.staff} />
+          </Card>
+        )}
+
+        {/* Comissão do dia – apenas admin */}
+        {!isColab && activeTab === "comissao" && (
+          <Card title="Comissão do dia" icon={<Cal className="w-5 h-5" />}>
+            <CommissionTab />
+          </Card>
+        )}
+
+        {/* Limpar – apenas admin */}
         {!isColab && activeTab === "limpar" && (
           <Card title="Limpar respostas da semana" icon={<Trash2 className="w-5 h-5" />}>
             <ClearTab
@@ -359,6 +379,7 @@ export default function App() {
           </Card>
         )}
 
+        {/* Compartilhar – apenas admin */}
         {!isColab && activeTab === "export" && (
           <Card title="Link para Compartilhar" icon={<Share2 className="w-5 h-5" />}>
             <ShareExport state={state} weekId={weekIdDash} />
@@ -373,7 +394,6 @@ export default function App() {
     </div>
   );
 }
-
 
 function TabButton({ label, active, onClick, icon }: TabButtonProps) {
   return (
@@ -518,7 +538,7 @@ function AvailabilityForm({
   );
 }
 
-// ======== ABA BATER PONTO ========
+// ======== ABA REGISTRAR PRESENÇA ========
 function PunchTab({ staff }: PunchTabProps) {
   const [selectedId, setSelectedId] = useState<string>("");
 
@@ -538,20 +558,83 @@ function PunchTab({ staff }: PunchTabProps) {
     return out;
   }, [staff]);
 
+  // Data, turno, setor
+  const [dateRaw, setDateRaw] = useState<string>("");
+  const [turno, setTurno] = useState<string>("Noite");
+  const [setor, setSetor] = useState<string>("Salão/Bar");
+
+  // Transporte ida
+  const [idaModo, setIdaModo] = useState<string>("");
+  const [idaCarona, setIdaCarona] = useState<string>("");
+  const [idaOnibusQtd, setIdaOnibusQtd] = useState<string>("1");
+  const [idaUberValor, setIdaUberValor] = useState<string>("");
+
+  // Transporte volta
+  const [voltaModo, setVoltaModo] = useState<string>("");
+  const [voltaCarona, setVoltaCarona] = useState<string>("");
+  const [voltaOnibusQtd, setVoltaOnibusQtd] = useState<string>("1");
+  const [voltaUberValor, setVoltaUberValor] = useState<string>("");
+
+  // Consumo
+  type ConsumoItem = { product: string; quantity: string };
+  const [consumoItems, setConsumoItems] = useState<ConsumoItem[]>([
+    { product: "", quantity: "1" },
+  ]);
+  const [produtos, setProdutos] = useState<string[]>([]);
+
   useEffect(() => {
     if (!selectedId && allPeople.length) {
       setSelectedId(allPeople[0].id);
     }
   }, [allPeople, selectedId]);
 
-  const today = new Date();
-  const dateStr = formatDDMMYYYY_slash(today);
+  // Carrega lista de produtos da planilha "Cadastro_produtos"
+  useEffect(() => {
+    async function loadProducts() {
+      if (!SYNC_ENDPOINT) return;
+      try {
+        const url = `${SYNC_ENDPOINT}?action=products`;
+        const resp = await fetch(url);
+        const data = await resp.json();
+        if (data?.ok && Array.isArray(data.products)) {
+          setProdutos(data.products as string[]);
+        }
+      } catch (err) {
+        console.error("Falha ao carregar produtos:", err);
+      }
+    }
+    loadProducts();
+  }, []);
+
+  const formatDateForPayload = (raw: string) => {
+    if (!raw) return "";
+    const [y, m, d] = raw.split("-");
+    if (!y || !m || !d) return "";
+    return `${d}/${m}/${y}`;
+  };
+
+  const handleAddConsumoRow = () => {
+    setConsumoItems((prev) => [...prev, { product: "", quantity: "1" }]);
+  };
+
+  const handleConsumoChange = (idx: number, field: "product" | "quantity", value: string) => {
+    setConsumoItems((prev) => {
+      const copy = [...prev];
+      copy[idx] = { ...copy[idx], [field]: value };
+      return copy;
+    });
+  };
 
   const handlePunch = async () => {
     if (!selectedId) {
       alert("Selecione uma pessoa.");
       return;
     }
+    if (!dateRaw) {
+      alert("Selecione a data.");
+      return;
+    }
+
     const entry = allPeople.find((p) => p.id === selectedId);
     const name = entry?.label || "";
     if (!name) {
@@ -561,18 +644,49 @@ function PunchTab({ staff }: PunchTabProps) {
 
     if (!SYNC_ENDPOINT) {
       alert(
-        `Ponto registrado localmente para ${name} em ${dateStr}, mas nenhum endpoint está configurado.`
+        `Presença registrada localmente para ${name}, mas nenhum endpoint está configurado.`
       );
       return;
     }
 
+    const dateStr = formatDateForPayload(dateRaw);
+    if (!dateStr) {
+      alert("Data inválida.");
+      return;
+    }
+
+    const consumoLimpo = consumoItems
+      .filter((c) => c.product && c.quantity)
+      .map((c) => ({
+        product: c.product,
+        quantity: c.quantity,
+      }));
+
+    const payload = {
+      action: "ponto",
+      date: dateStr,
+      staff: name,
+      timestamp: new Date().toISOString(),
+      turno,
+      setor,
+      transporte: {
+        ida: {
+          modo: idaModo,
+          caronaCom: idaModo === "carona" ? idaCarona : "",
+          onibusQtd: idaModo === "onibus" ? idaOnibusQtd : "",
+          uberValor: idaModo === "uber" ? idaUberValor : "",
+        },
+        volta: {
+          modo: voltaModo,
+          caronaCom: voltaModo === "carona" ? voltaCarona : "",
+          onibusQtd: voltaModo === "onibus" ? voltaOnibusQtd : "",
+          uberValor: voltaModo === "uber" ? voltaUberValor : "",
+        },
+      },
+      consumo: consumoLimpo,
+    };
+
     try {
-      const payload = {
-        action: "ponto",
-        date: dateStr,
-        staff: name,
-        timestamp: new Date().toISOString(),
-      };
       const resp = await fetch(SYNC_ENDPOINT, {
         method: "POST",
         mode: "no-cors",
@@ -581,44 +695,264 @@ function PunchTab({ staff }: PunchTabProps) {
       });
       // @ts-ignore
       if ((resp as any)?.type === "opaque" || (resp as any)?.status === 0) {
-        alert(`Ponto registrado para ${name} em ${dateStr}.`);
+        alert(`Presença registrada para ${name} em ${dateStr}.`);
         return;
       }
       if (!resp.ok) {
         const txt = await resp.text().catch(() => "");
-        alert(`Falha ao registrar ponto (HTTP ${resp.status}). ${txt.slice(0, 180)}`);
+        alert(`Falha ao registrar presença (HTTP ${resp.status}). ${txt.slice(0, 180)}`);
         return;
       }
-      alert(`Ponto registrado para ${name} em ${dateStr}.`);
+      alert(`Presença registrada para ${name} em ${dateStr}.`);
     } catch (err: any) {
-      alert(`Não foi possível enviar o ponto. Erro: ${String(err)}`);
+      alert(`Não foi possível enviar o registro de presença. Erro: ${String(err)}`);
     }
   };
 
+  const colaboradoresParaCarona = allPeople.filter((p) => p.id !== selectedId);
+
   return (
-    <div className="space-y-3">
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 items-center">
-        <label className="text-sm text-gray-600">Pessoa</label>
-        <select
-          className="input sm:col-span-2"
-          value={selectedId}
-          onChange={(e) => setSelectedId(e.target.value)}
-        >
-          {allPeople.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.label}
-            </option>
-          ))}
-        </select>
+    <div className="space-y-4">
+      {/* Nome + Data + Turno + Setor */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div className="space-y-1">
+          <label className="text-sm text-gray-600">Nome</label>
+          <select
+            className="input w-full"
+            value={selectedId}
+            onChange={(e) => setSelectedId(e.target.value)}
+          >
+            {allPeople.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.label}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="space-y-1">
+          <label className="text-sm text-gray-600">Data</label>
+          <input
+            type="date"
+            className="input w-full"
+            value={dateRaw}
+            onChange={(e) => setDateRaw(e.target.value)}
+          />
+        </div>
+
+        <div className="space-y-1">
+          <label className="text-sm text-gray-600">Turno</label>
+          <select
+            className="input w-full"
+            value={turno}
+            onChange={(e) => setTurno(e.target.value)}
+          >
+            <option value="Almoço">Almoço</option>
+            <option value="Noite">Noite</option>
+          </select>
+        </div>
+
+        <div className="space-y-1">
+          <label className="text-sm text-gray-600">Setor</label>
+          <select
+            className="input w-full"
+            value={setor}
+            onChange={(e) => setSetor(e.target.value)}
+          >
+            <option value="Salão/Bar">Salão/Bar</option>
+            <option value="Pizzaria/Cozinha">Pizzaria/Cozinha</option>
+          </select>
+        </div>
       </div>
 
-      <button onClick={handlePunch} className="btn btn-primary">
-        {`Bater ponto para dia ${dateStr}`}
-      </button>
+      {/* Transporte ida/volta */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        {/* Ida */}
+        <div className="border rounded-xl p-3 bg-white space-y-2">
+          <div className="font-semibold text-sm">Transporte – Ida</div>
+          <div className="space-y-1">
+            <label className="text-xs text-gray-600">Tipo</label>
+            <select
+              className="input w-full"
+              value={idaModo}
+              onChange={(e) => setIdaModo(e.target.value)}
+            >
+              <option value="">Nenhum</option>
+              <option value="carona">Carona</option>
+              <option value="onibus">Ônibus</option>
+              <option value="uber">Uber</option>
+            </select>
+          </div>
 
-      <div className="text-xs text-gray-500">
-        Cada clique registra uma linha em uma planilha no Google Drive chamada{" "}
-        <b>Pontos batidos dia {dateStr}</b>.
+          {idaModo === "carona" && (
+            <div className="space-y-1">
+              <label className="text-xs text-gray-600">Carona com</label>
+              <select
+                className="input w-full"
+                value={idaCarona}
+                onChange={(e) => setIdaCarona(e.target.value)}
+              >
+                <option value="">Selecione</option>
+                {colaboradoresParaCarona.map((p) => (
+                  <option key={p.id} value={p.label}>
+                    {p.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          {idaModo === "onibus" && (
+            <div className="space-y-1">
+              <label className="text-xs text-gray-600">Nº de passagens (1–3)</label>
+              <select
+                className="input w-full"
+                value={idaOnibusQtd}
+                onChange={(e) => setIdaOnibusQtd(e.target.value)}
+              >
+                <option value="1">1</option>
+                <option value="2">2</option>
+                <option value="3">3</option>
+              </select>
+            </div>
+          )}
+
+          {idaModo === "uber" && (
+            <div className="space-y-1">
+              <label className="text-xs text-gray-600">Valor (R$)</label>
+              <input
+                type="number"
+                step="0.01"
+                className="input w-full"
+                value={idaUberValor}
+                onChange={(e) => setIdaUberValor(e.target.value)}
+              />
+            </div>
+          )}
+        </div>
+
+        {/* Volta */}
+        <div className="border rounded-xl p-3 bg-white space-y-2">
+          <div className="font-semibold text-sm">Transporte – Volta</div>
+          <div className="space-y-1">
+            <label className="text-xs text-gray-600">Tipo</label>
+            <select
+              className="input w-full"
+              value={voltaModo}
+              onChange={(e) => setVoltaModo(e.target.value)}
+            >
+              <option value="">Nenhum</option>
+              <option value="carona">Carona</option>
+              <option value="onibus">Ônibus</option>
+              <option value="uber">Uber</option>
+            </select>
+          </div>
+
+          {voltaModo === "carona" && (
+            <div className="space-y-1">
+              <label className="text-xs text-gray-600">Carona com</label>
+              <select
+                className="input w-full"
+                value={voltaCarona}
+                onChange={(e) => setVoltaCarona(e.target.value)}
+              >
+                <option value="">Selecione</option>
+                {colaboradoresParaCarona.map((p) => (
+                  <option key={p.id} value={p.label}>
+                    {p.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          {voltaModo === "onibus" && (
+            <div className="space-y-1">
+              <label className="text-xs text-gray-600">Nº de passagens (1–3)</label>
+              <select
+                className="input w-full"
+                value={voltaOnibusQtd}
+                onChange={(e) => setVoltaOnibusQtd(e.target.value)}
+              >
+                <option value="1">1</option>
+                <option value="2">2</option>
+                <option value="3">3</option>
+              </select>
+            </div>
+          )}
+
+          {voltaModo === "uber" && (
+            <div className="space-y-1">
+              <label className="text-xs text-gray-600">Valor (R$)</label>
+              <input
+                type="number"
+                step="0.01"
+                className="input w-full"
+                value={voltaUberValor}
+                onChange={(e) => setVoltaUberValor(e.target.value)}
+              />
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Consumo */}
+      <div className="border rounded-xl p-3 bg-white space-y-2">
+        <div className="flex items-center justify-between">
+          <div className="font-semibold text-sm">Consumo</div>
+          <button
+            type="button"
+            className="btn btn-ghost text-xs"
+            onClick={handleAddConsumoRow}
+          >
+            + Adicionar item
+          </button>
+        </div>
+        <div className="space-y-2">
+          {consumoItems.map((item, idx) => (
+            <div
+              key={idx}
+              className="grid grid-cols-3 sm:grid-cols-4 gap-2 items-center"
+            >
+              <div className="col-span-2 sm:col-span-3">
+                <label className="text-xs text-gray-600 block mb-1">Produto</label>
+                <select
+                  className="input w-full"
+                  value={item.product}
+                  onChange={(e) =>
+                    handleConsumoChange(idx, "product", e.target.value)
+                  }
+                >
+                  <option value="">Selecione</option>
+                  {produtos.map((p) => (
+                    <option key={p} value={p}>
+                      {p}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="text-xs text-gray-600 block mb-1">Qtd.</label>
+                <input
+                  type="number"
+                  min={1}
+                  className="input w-full"
+                  value={item.quantity}
+                  onChange={(e) =>
+                    handleConsumoChange(idx, "quantity", e.target.value)
+                  }
+                />
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Botão registrar */}
+      <div className="pt-2">
+        <button onClick={handlePunch} className="btn btn-primary">
+          Registrar presença
+        </button>
       </div>
     </div>
   );
@@ -863,6 +1197,117 @@ function SolverUI({ state, availability, onRefresh, weekId }: SolverUIProps) {
           <span className="font-semibold">"Cadastro_colaboradores"</span>, e o resumo
           completo da semana será enviado para <b>isagvm@gmail.com</b>.
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ======== COMISSÃO DO DIA ========
+function CommissionTab() {
+  const [dateRaw, setDateRaw] = useState<string>("");
+  const [turno, setTurno] = useState<string>("Almoço");
+  const [valor, setValor] = useState<string>("");
+
+  const formatDateForPayload = (raw: string) => {
+    if (!raw) return "";
+    const [y, m, d] = raw.split("-");
+    if (!y || !m || !d) return "";
+    return `${d}/${m}/${y}`;
+  };
+
+  const handleSaveCommission = async () => {
+    if (!dateRaw) {
+      alert("Selecione a data.");
+      return;
+    }
+    if (!valor) {
+      alert("Informe o valor da comissão.");
+      return;
+    }
+
+    const dateStr = formatDateForPayload(dateRaw);
+    if (!dateStr) {
+      alert("Data inválida.");
+      return;
+    }
+
+    if (!SYNC_ENDPOINT) {
+      alert("Nenhum endpoint de sincronização configurado.");
+      return;
+    }
+
+    const payload = {
+      action: "comissao",
+      date: dateStr,
+      turno,
+      valor,
+    };
+
+    try {
+      const resp = await fetch(SYNC_ENDPOINT, {
+        method: "POST",
+        mode: "no-cors",
+        headers: { "Content-Type": "text/plain;charset=utf-8" },
+        body: JSON.stringify(payload),
+      });
+      // @ts-ignore
+      if ((resp as any)?.type === "opaque" || (resp as any)?.status === 0) {
+        alert("Comissão registrada.");
+        return;
+      }
+      if (!resp.ok) {
+        const txt = await resp.text().catch(() => "");
+        alert(`Falha ao registrar comissão (HTTP ${resp.status}). ${txt.slice(0, 180)}`);
+        return;
+      }
+      alert("Comissão registrada.");
+    } catch (err: any) {
+      alert(`Não foi possível registrar a comissão. Erro: ${String(err)}`);
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div className="space-y-1">
+          <label className="text-sm text-gray-600">Data</label>
+          <input
+            type="date"
+            className="input w-full"
+            value={dateRaw}
+            onChange={(e) => setDateRaw(e.target.value)}
+          />
+        </div>
+        <div className="space-y-1">
+          <label className="text-sm text-gray-600">Turno</label>
+          <select
+            className="input w-full"
+            value={turno}
+            onChange={(e) => setTurno(e.target.value)}
+          >
+            <option value="Almoço">Almoço</option>
+            <option value="Noite">Noite</option>
+          </select>
+        </div>
+        <div className="space-y-1">
+          <label className="text-sm text-gray-600">Valor da comissão (R$)</label>
+          <input
+            type="number"
+            step="0.01"
+            className="input w-full"
+            value={valor}
+            onChange={(e) => setValor(e.target.value)}
+          />
+        </div>
+      </div>
+
+      <button onClick={handleSaveCommission} className="btn btn-primary">
+        Registrar comissão do dia
+      </button>
+
+      <div className="text-xs text-gray-500">
+        As comissões serão registradas em uma planilha no Drive (via Apps Script) com
+        data, turno e valor lançados.
       </div>
     </div>
   );
