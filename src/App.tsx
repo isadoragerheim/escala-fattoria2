@@ -45,7 +45,7 @@ interface PunchTabProps {
 
 const LS_KEY = "escala_fattoria_state_v4";
 const SYNC_ENDPOINT =
-  "https://script.google.com/macros/s/AKfycbwQsmqSOmALernF48mfjTR6CGTdf9ycC-6g2AdexUcpA9Px-WxkYcfviUDTzo2WOEbFzw/exec";
+  "https://script.google.com/macros/s/AKfycbw-3cr4jczGrGURqtB0daTVHjpLK4eWRqcY0edX47SrEPC6I99_0iyuVjn_Tu_0ptBv8Q/exec";
 
 function id() {
   return Math.random().toString(36).slice(2, 10);
