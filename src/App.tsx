@@ -159,7 +159,6 @@ export default function App() {
     const [d, mNum, y] = initialDash.split("-").map(Number);
     setWeekIdSlash(`${String(d).padStart(2, "0")}/${String(mNum).padStart(2, "0")}/${y}`);
 
-    // não auto-seleciona mais; deixa como "Selecionar seu nome"
     if (wanted) {
       setTimeout(() => {
         setState((curr) => {
@@ -358,8 +357,8 @@ export default function App() {
         )}
 
         <div className="mt-6 text-xs text-gray-500 flex items-center gap-2">
-          <RefreshCw className="w-4 h-4" /> Dados locais + servidor. Use “Escalar” → “Atualizar
-          respostas” (apenas no painel da gerência).
+          <RefreshCw className="w-4 h-4" /> Dados locais + servidor. Use “Escalar” →
+          “Atualizar respostas” (apenas no painel da gerência).
         </div>
       </div>
     </div>
@@ -413,8 +412,8 @@ function AvailabilityForm({
   };
 
   const save = async () => {
-    if (!selectedStaffId || !selected) {
-      alert("Nenhum nome foi selecionado.");
+    if (!selected) {
+      alert("Nenhum nome foi selecionado");
       return;
     }
     const chosenCodes = (state.availability[selectedStaffId] || [])
@@ -494,7 +493,6 @@ function AvailabilityForm({
               type="checkbox"
               checked={chosen.includes(d.id)}
               onChange={() => toggle(d.id)}
-              disabled={!selectedStaffId}
             />
             <span>{d.label}</span>
           </label>
@@ -555,11 +553,6 @@ function PunchTab({ staff }: PunchTabProps) {
   ]);
   const [produtos, setProdutos] = useState<string[]>([]);
 
-  // não auto-seleciona ninguém; obriga escolha
-  useEffect(() => {
-    // nada aqui
-  }, []);
-
   // Carrega lista de produtos da planilha "Cadastro_produtos"
   useEffect(() => {
     async function loadProducts() {
@@ -599,7 +592,7 @@ function PunchTab({ staff }: PunchTabProps) {
 
   const handlePunch = async () => {
     if (!selectedId) {
-      alert("Nenhum nome foi selecionado.");
+      alert("Nenhum nome foi selecionado");
       return;
     }
     if (!dateRaw) {
@@ -694,7 +687,7 @@ function PunchTab({ staff }: PunchTabProps) {
             value={selectedId}
             onChange={(e) => setSelectedId(e.target.value)}
           >
-            <option value="">Selecione uma pessoa</option>
+            <option value="">Selecionar seu nome</option>
             {allPeople.map((p) => (
               <option key={p.id} value={p.id}>
                 {p.label}
@@ -1335,7 +1328,6 @@ function CommissionTab() {
               onChange={(e) => setValor(e.target.value)}
             />
           </div>
-          {/* NOVO: faturamento */}
           <div className="space-y-1">
             <label className="text-sm text-gray-600">Faturamento (R$)</label>
             <input
