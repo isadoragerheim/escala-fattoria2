@@ -159,6 +159,7 @@ export default function App() {
     const [d, mNum, y] = initialDash.split("-").map(Number);
     setWeekIdSlash(`${String(d).padStart(2, "0")}/${String(mNum).padStart(2, "0")}/${y}`);
 
+    // não auto-seleciona mais; deixa como "Selecionar seu nome"
     if (wanted) {
       setTimeout(() => {
         setState((curr) => {
@@ -178,11 +179,6 @@ export default function App() {
       localStorage.setItem(LS_KEY, JSON.stringify(state));
     } catch {}
   }, [state]);
-
-  // seleciona primeiro nome por padrão
-  useEffect(() => {
-    if (!selectedStaffId && state.staff.length) setSelectedStaffId(state.staff[0].id);
-  }, [state.staff, selectedStaffId]);
 
   // carrega colaboradores da planilha "Cadastro_colaboradores"
   useEffect(() => {
@@ -417,8 +413,8 @@ function AvailabilityForm({
   };
 
   const save = async () => {
-    if (!selected) {
-      alert("Selecione seu nome.");
+    if (!selectedStaffId || !selected) {
+      alert("Nenhum nome foi selecionado.");
       return;
     }
     const chosenCodes = (state.availability[selectedStaffId] || [])
@@ -479,6 +475,7 @@ function AvailabilityForm({
           value={selectedStaffId}
           onChange={(e) => setSelectedStaffId(e.target.value)}
         >
+          <option value="">Selecionar seu nome</option>
           {state.staff.map((s) => (
             <option key={s.id} value={s.id}>
               {s.name}
@@ -497,6 +494,7 @@ function AvailabilityForm({
               type="checkbox"
               checked={chosen.includes(d.id)}
               onChange={() => toggle(d.id)}
+              disabled={!selectedStaffId}
             />
             <span>{d.label}</span>
           </label>
@@ -557,11 +555,10 @@ function PunchTab({ staff }: PunchTabProps) {
   ]);
   const [produtos, setProdutos] = useState<string[]>([]);
 
+  // não auto-seleciona ninguém; obriga escolha
   useEffect(() => {
-    if (!selectedId && allPeople.length) {
-      setSelectedId(allPeople[0].id);
-    }
-  }, [allPeople, selectedId]);
+    // nada aqui
+  }, []);
 
   // Carrega lista de produtos da planilha "Cadastro_produtos"
   useEffect(() => {
@@ -602,7 +599,7 @@ function PunchTab({ staff }: PunchTabProps) {
 
   const handlePunch = async () => {
     if (!selectedId) {
-      alert("Selecione uma pessoa.");
+      alert("Nenhum nome foi selecionado.");
       return;
     }
     if (!dateRaw) {
@@ -670,7 +667,7 @@ function PunchTab({ staff }: PunchTabProps) {
       });
       // @ts-ignore
       if ((resp as any)?.type === "opaque" || (resp as any)?.status === 0) {
-        alert(`Presença registrado para ${name} em ${dateStr}.`);
+        alert(`Presença registrada para ${name} em ${dateStr}.`);
         return;
       }
       if (!resp.ok) {
@@ -697,6 +694,7 @@ function PunchTab({ staff }: PunchTabProps) {
             value={selectedId}
             onChange={(e) => setSelectedId(e.target.value)}
           >
+            <option value="">Selecione uma pessoa</option>
             {allPeople.map((p) => (
               <option key={p.id} value={p.id}>
                 {p.label}
@@ -1182,6 +1180,7 @@ function CommissionTab() {
   const [dateRaw, setDateRaw] = useState<string>("");
   const [turno, setTurno] = useState<string>("Almoço");
   const [valor, setValor] = useState<string>("");
+  const [faturamento, setFaturamento] = useState<string>("");
 
   const [startRaw, setStartRaw] = useState<string>("");
   const [endRaw, setEndRaw] = useState<string>("");
@@ -1202,6 +1201,10 @@ function CommissionTab() {
       alert("Informe o valor da comissão.");
       return;
     }
+    if (!faturamento) {
+      alert("Informe o faturamento.");
+      return;
+    }
 
     const dateStr = formatDateForPayload(dateRaw);
     if (!dateStr) {
@@ -1219,6 +1222,7 @@ function CommissionTab() {
       date: dateStr,
       turno,
       valor,
+      faturamento,
     };
 
     try {
@@ -1276,7 +1280,7 @@ function CommissionTab() {
       });
       // @ts-ignore
       if ((resp as any)?.type === "opaque" || (resp as any)?.status === 0) {
-        alert("Relatórios de pagamentos gerados (planilhas por colaborador).");
+        alert("Relatórios de pagamentos gerados.");
         return;
       }
       if (!resp.ok) {
@@ -1289,7 +1293,7 @@ function CommissionTab() {
         );
         return;
       }
-      alert("Relatórios de pagamentos gerados (planilhas por colaborador).");
+      alert("Relatórios de pagamentos gerados.");
     } catch (err: any) {
       alert(`Não foi possível gerar os relatórios. Erro: ${String(err)}`);
     }
@@ -1300,7 +1304,7 @@ function CommissionTab() {
       {/* Seção Comissão do dia */}
       <div className="border rounded-xl p-4 bg-white space-y-4">
         <h3 className="font-semibold text-base">Comissão do dia</h3>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
           <div className="space-y-1">
             <label className="text-sm text-gray-600">Data</label>
             <input
@@ -1331,17 +1335,22 @@ function CommissionTab() {
               onChange={(e) => setValor(e.target.value)}
             />
           </div>
+          {/* NOVO: faturamento */}
+          <div className="space-y-1">
+            <label className="text-sm text-gray-600">Faturamento (R$)</label>
+            <input
+              type="number"
+              step="0.01"
+              className="input w-full"
+              value={faturamento}
+              onChange={(e) => setFaturamento(e.target.value)}
+            />
+          </div>
         </div>
 
         <button onClick={handleSaveCommission} className="btn btn-primary">
           Registrar comissão do dia
         </button>
-
-        <div className="text-xs text-gray-500">
-          As comissões são registradas na planilha{" "}
-          <span className="font-semibold">"Registro das Comissões Diárias"</span>, com
-          data, turno e valor total da comissão daquele dia/turno.
-        </div>
       </div>
 
       {/* Seção Pagamentos */}
@@ -1371,12 +1380,6 @@ function CommissionTab() {
         <button onClick={handlePaymentsReport} className="btn btn-primary">
           Gerar relatórios de Pagamentos
         </button>
-
-        <div className="text-xs text-gray-500">
-          Será criada uma pasta <b>"Pagamentos"</b> dentro da pasta principal, e dentro
-          dela uma pasta <b>"Relatórios dd-mm-yyyy - dd-mm-yyyy"</b> contendo uma
-          planilha por colaborador com o detalhamento dos cálculos de pagamento.
-        </div>
       </div>
     </div>
   );
