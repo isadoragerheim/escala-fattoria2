@@ -354,12 +354,12 @@ export default function App() {
           </Card>
         )}
 
-        {/* Compras de Estoque – apenas admin */}
-        {!isColab && activeTab === "estoque" && (
-          <Card title="Compras de Estoque" icon={<ShoppingCart className="w-5 h-5" />}>
-            <StockTab />
-          </Card>
-        )}
+        {/* Compras de Estoque – disponível para admin e colab */}
+{activeTab === "estoque" && (
+  <Card title="Compras de Estoque" icon={<ShoppingCart className="w-5 h-5" />}>
+    <StockTab />
+  </Card>
+)}
 
         {/* Comissão e Pagamento – apenas admin */}
         {!isColab && activeTab === "comissao" && (
@@ -1410,6 +1410,7 @@ function StockTab() {
   const [loading, setLoading] = useState(false);
   const [quantities, setQuantities] = useState<Record<string, string>>({});
   const [dateRaw, setDateRaw] = useState<string>("");
+  const [selectedSector, setSelectedSector] = useState<string>("");
 
   useEffect(() => {
     const todayIso = new Date().toISOString().slice(0, 10);
@@ -1437,6 +1438,23 @@ function StockTab() {
     }
   }
 
+  const sectors = useMemo(() => {
+    const s = new Set<string>();
+    items.forEach((it) => {
+      if (it.setor && String(it.setor).trim() !== "") {
+        s.add(String(it.setor).trim());
+      }
+    });
+    return Array.from(s).sort((a, b) => a.localeCompare(b, "pt-BR"));
+  }, [items]);
+
+  const filteredItems = useMemo(() => {
+    if (!selectedSector) return [];
+    return items.filter(
+      (it) => String(it.setor || "").trim() === selectedSector
+    );
+  }, [items, selectedSector]);
+
   const handleQtyChange = (itemName: string, value: string) => {
     setQuantities((prev) => ({ ...prev, [itemName]: value }));
   };
@@ -1460,14 +1478,19 @@ function StockTab() {
       return;
     }
 
-    if (!items.length) {
-      alert("Nenhum item de estoque foi carregado.");
+    if (!selectedSector) {
+      alert("Selecione o setor antes de criar a lista de compras.");
+      return;
+    }
+
+    if (!filteredItems.length) {
+      alert("Não há itens de estoque para o setor selecionado.");
       return;
     }
 
     const dateStr = formatDateForPayload(dateRaw) || formatDateForPayload(new Date());
 
-    const entries = items.map((it) => ({
+    const entries = filteredItems.map((it) => ({
       item: it.item,
       estoqueAtual: quantities[it.item] ?? "",
     }));
@@ -1475,6 +1498,7 @@ function StockTab() {
     const payload = {
       action: "estoque_lista",
       date: dateStr,
+      setor: selectedSector,
       entries,
     };
 
@@ -1505,13 +1529,14 @@ function StockTab() {
 
   return (
     <div className="space-y-4">
-      {/* Data do registro */}
+      {/* Data do registro + explicação */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
         <div className="sm:col-span-2 text-sm text-gray-600">
-          Preencha o estoque atual de cada item. Ao clicar em{" "}
+          Preencha o estoque atual dos itens do setor selecionado. Ao clicar em{" "}
           <b>"Criar lista de compras"</b>, o sistema irá calcular quanto comprar para
           atingir os estoques mínimo e máximo, salvar uma planilha em{" "}
-          <b>"Registros de Estoque"</b> e enviar um PDF por e-mail.
+          <b>"Registros de Estoque"</b> e enviar um PDF por e-mail apenas com os itens
+          abaixo do mínimo.
         </div>
         <div className="space-y-1">
           <label className="text-sm text-gray-600">Data do registro</label>
@@ -1522,6 +1547,30 @@ function StockTab() {
             onChange={(e) => setDateRaw(e.target.value)}
           />
         </div>
+      </div>
+
+      {/* Seleção de setor */}
+      <div className="space-y-1">
+        <label className="text-sm text-gray-600">Setor do inventário</label>
+        <select
+          className="input w-full sm:w-80"
+          value={selectedSector}
+          onChange={(e) => setSelectedSector(e.target.value)}
+        >
+          <option value="">
+            {sectors.length ? "Selecione um setor" : "Nenhum setor encontrado na planilha"}
+          </option>
+          {sectors.map((s) => (
+            <option key={s} value={s}>
+              {s}
+            </option>
+          ))}
+        </select>
+        {selectedSector && (
+          <div className="text-xs text-gray-500">
+            Itens exibidos abaixo: setor <b>{selectedSector}</b>.
+          </div>
+        )}
       </div>
 
       {/* Tabela de itens */}
@@ -1544,7 +1593,17 @@ function StockTab() {
             Nenhum item encontrado em &quot;Cadastro_Estoque&quot;.
           </div>
         )}
-        {!loading && items.length > 0 && (
+        {!loading && items.length > 0 && !selectedSector && (
+          <div className="text-xs text-amber-700">
+            Selecione um setor para visualizar os itens do inventário.
+          </div>
+        )}
+        {!loading && selectedSector && filteredItems.length === 0 && (
+          <div className="text-xs text-red-600">
+            Não há itens cadastrados para o setor <b>{selectedSector}</b>.
+          </div>
+        )}
+        {!loading && selectedSector && filteredItems.length > 0 && (
           <div className="overflow-auto">
             <table className="min-w-full border text-sm">
               <thead className="bg-gray-100">
@@ -1555,7 +1614,7 @@ function StockTab() {
                 </tr>
               </thead>
               <tbody>
-                {items.map((it) => (
+                {filteredItems.map((it) => (
                   <tr key={it.item}>
                     <td className="border px-3 py-2">
                       <div className="font-medium">{it.item}</div>
@@ -1599,6 +1658,7 @@ function StockTab() {
     </div>
   );
 }
+
 
 function ClearTab({
   weekId,
