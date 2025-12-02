@@ -22,7 +22,7 @@ interface StockItem {
   estoqueMax: number | null;
   ondeComprar: string;
   observacao: string;
-  setor?: string; // novo campo vindo da coluna "Setor" da planilha
+  setor?: string; // novo campo vindo da coluna "Setor"
 }
 
 interface TabButtonProps {
@@ -289,13 +289,12 @@ export default function App() {
               label="Registrar presença"
             />
             {/* 4) Compras de Estoque – agora visível para todos */}
-<TabButton
-  icon={<ShoppingCart className="w-4 h-4" />}
-  active={activeTab === "estoque"}
-  onClick={() => setActiveTab("estoque")}
-  label="Compras de Estoque"
-/>
-            )}
+            <TabButton
+              icon={<ShoppingCart className="w-4 h-4" />}
+              active={activeTab === "estoque"}
+              onClick={() => setActiveTab("estoque")}
+              label="Compras de Estoque"
+            />
             {/* 5) Comissão e Pagamento – só admin */}
             {!isColab && (
               <TabButton
@@ -355,11 +354,11 @@ export default function App() {
         )}
 
         {/* Compras de Estoque – disponível para admin e colab */}
-{activeTab === "estoque" && (
-  <Card title="Compras de Estoque" icon={<ShoppingCart className="w-5 h-5" />}>
-    <StockTab />
-  </Card>
-)}
+        {activeTab === "estoque" && (
+          <Card title="Compras de Estoque" icon={<ShoppingCart className="w-5 h-5" />}>
+            <StockTab />
+          </Card>
+        )}
 
         {/* Comissão e Pagamento – apenas admin */}
         {!isColab && activeTab === "comissao" && (
@@ -1031,10 +1030,11 @@ function SolverUI({ state, availability, onRefresh, weekId }: SolverUIProps) {
     // monta objeto { [dayCode]: [nomesÚnicos] }
     const schedule: Record<string, string[]> = {};
     for (const day of state.days) {
-      const arr = selects[day.id] || [];
-      const names = arr
+      const arr = selects[day.id] || {};
+      const values = Array.isArray(arr) ? arr : [];
+      const names = values
         .filter(Boolean)
-        .map((sid) => labelOf(sid))
+        .map((sid: string) => labelOf(sid))
         .filter(Boolean);
       const uniqueNames = Array.from(new Set(names));
       schedule[day.code] = uniqueNames;
@@ -1658,7 +1658,6 @@ function StockTab() {
     </div>
   );
 }
-
 
 function ClearTab({
   weekId,
