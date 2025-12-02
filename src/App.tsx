@@ -5,6 +5,7 @@ import {
   Calendar as Cal,
   RefreshCw,
   ClipboardList,
+  ShoppingCart,
 } from "lucide-react";
 
 type Staff = { id: string; name: string };
@@ -12,6 +13,16 @@ type Day = { id: string; label: string; code: string };
 type Rule = { id: string; a: string; b: string; kind: "must" | "never" };
 type Availability = Record<string, string[]>;
 type State = { staff: Staff[]; days: Day[]; rules: Rule[]; availability: Availability };
+
+interface StockItem {
+  item: string;
+  categoria: string;
+  armazenamento: string;
+  estoqueMin: number | null;
+  estoqueMax: number | null;
+  ondeComprar: string;
+  observacao: string;
+}
 
 interface TabButtonProps {
   label: string;
@@ -122,7 +133,7 @@ export default function App() {
   const [mode, setMode] = useState<Mode>("admin");
 
   const [activeTab, setActiveTab] = useState<
-    "disponibilidade" | "escalar" | "presenca" | "comissao" | "limpar"
+    "disponibilidade" | "escalar" | "presenca" | "estoque" | "comissao" | "limpar"
   >("disponibilidade");
 
   const [selectedStaffId, setSelectedStaffId] = useState<string>("");
@@ -276,7 +287,16 @@ export default function App() {
               onClick={() => setActiveTab("presenca")}
               label="Registrar presença"
             />
-            {/* 4) Comissão e Pagamento – só admin */}
+            {/* 4) Compras de Estoque – só admin */}
+            {!isColab && (
+              <TabButton
+                icon={<ShoppingCart className="w-4 h-4" />}
+                active={activeTab === "estoque"}
+                onClick={() => setActiveTab("estoque")}
+                label="Compras de Estoque"
+              />
+            )}
+            {/* 5) Comissão e Pagamento – só admin */}
             {!isColab && (
               <TabButton
                 icon={<Cal className="w-4 h-4" />}
@@ -285,7 +305,7 @@ export default function App() {
                 label="Comissão e Pagamento"
               />
             )}
-            {/* 5) Limpar – só admin */}
+            {/* 6) Limpar – só admin */}
             {!isColab && (
               <TabButton
                 icon={<Trash2 className="w-4 h-4" />}
@@ -331,6 +351,13 @@ export default function App() {
         {activeTab === "presenca" && (
           <Card title="Registrar presença" icon={<Cal className="w-5 h-5" />}>
             <PunchTab staff={state.staff} />
+          </Card>
+        )}
+
+        {/* Compras de Estoque – apenas admin */}
+        {!isColab && activeTab === "estoque" && (
+          <Card title="Compras de Estoque" icon={<ShoppingCart className="w-5 h-5" />}>
+            <StockTab />
           </Card>
         )}
 
@@ -1235,7 +1262,7 @@ function CommissionTab() {
         alert(`Falha ao registrar comissão (HTTP ${resp.status}). ${txt.slice(0, 180)}`);
         return;
       }
-      alert("Comissão registrada.");
+      alert("Comissão registrado.");
     } catch (err: any) {
       alert(`Não foi possível registrar a comissão. Erro: ${String(err)}`);
     }
@@ -1371,6 +1398,199 @@ function CommissionTab() {
 
         <button onClick={handlePaymentsReport} className="btn btn-primary">
           Gerar relatórios de Pagamentos
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ======== ABA COMPRAS DE ESTOQUE ========
+function StockTab() {
+  const [items, setItems] = useState<StockItem[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [quantities, setQuantities] = useState<Record<string, string>>({});
+  const [dateRaw, setDateRaw] = useState<string>("");
+
+  useEffect(() => {
+    const todayIso = new Date().toISOString().slice(0, 10);
+    setDateRaw(todayIso);
+    loadStock();
+  }, []);
+
+  async function loadStock() {
+    if (!SYNC_ENDPOINT) return;
+    setLoading(true);
+    try {
+      const url = `${SYNC_ENDPOINT}?action=stock`;
+      const resp = await fetch(url);
+      const data = await resp.json();
+      if (data?.ok && Array.isArray(data.items)) {
+        setItems(data.items as StockItem[]);
+      } else {
+        console.error("Resposta inválida em /stock", data);
+      }
+    } catch (err) {
+      console.error("Falha ao carregar estoque:", err);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const handleQtyChange = (itemName: string, value: string) => {
+    setQuantities((prev) => ({ ...prev, [itemName]: value }));
+  };
+
+  const formatDateForPayload = (raw: string | Date) => {
+    if (raw instanceof Date) {
+      const y = raw.getFullYear();
+      const m = String(raw.getMonth() + 1).padStart(2, "0");
+      const d = String(raw.getDate()).padStart(2, "0");
+      return `${d}/${m}/${y}`;
+    }
+    if (!raw) return "";
+    const [y, m, d] = raw.split("-");
+    if (!y || !m || !d) return "";
+    return `${d}/${m}/${y}`;
+  };
+
+  const handleCreateList = async () => {
+    if (!SYNC_ENDPOINT) {
+      alert("Nenhum endpoint de sincronização configurado.");
+      return;
+    }
+
+    if (!items.length) {
+      alert("Nenhum item de estoque foi carregado.");
+      return;
+    }
+
+    const dateStr = formatDateForPayload(dateRaw) || formatDateForPayload(new Date());
+
+    const entries = items.map((it) => ({
+      item: it.item,
+      estoqueAtual: quantities[it.item] ?? "",
+    }));
+
+    const payload = {
+      action: "estoque_lista",
+      date: dateStr,
+      entries,
+    };
+
+    try {
+      const resp = await fetch(SYNC_ENDPOINT, {
+        method: "POST",
+        mode: "no-cors",
+        headers: { "Content-Type": "text/plain;charset=utf-8" },
+        body: JSON.stringify(payload),
+      });
+      // @ts-ignore
+      if ((resp as any)?.type === "opaque" || (resp as any)?.status === 0) {
+        alert("Lista de compras gerada e enviada por e-mail.");
+        return;
+      }
+      if (!resp.ok) {
+        const txt = await resp.text().catch(() => "");
+        alert(
+          `Falha ao gerar lista de compras (HTTP ${resp.status}). ${txt.slice(0, 180)}`
+        );
+        return;
+      }
+      alert("Lista de compras gerada e enviada por e-mail.");
+    } catch (err: any) {
+      alert(`Não foi possível gerar a lista de compras. Erro: ${String(err)}`);
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      {/* Data do registro */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
+        <div className="sm:col-span-2 text-sm text-gray-600">
+          Preencha o estoque atual de cada item. Ao clicar em{" "}
+          <b>"Criar lista de compras"</b>, o sistema irá calcular quanto comprar para
+          atingir os estoques mínimo e máximo, salvar uma planilha em{" "}
+          <b>"Registros de Estoque"</b> e enviar um PDF por e-mail.
+        </div>
+        <div className="space-y-1">
+          <label className="text-sm text-gray-600">Data do registro</label>
+          <input
+            type="date"
+            className="input w-full"
+            value={dateRaw}
+            onChange={(e) => setDateRaw(e.target.value)}
+          />
+        </div>
+      </div>
+
+      {/* Tabela de itens */}
+      <div className="border rounded-xl p-3 bg-white space-y-2">
+        <div className="flex items-center justify-between mb-2">
+          <h3 className="font-semibold text-sm">Itens de estoque</h3>
+          <button
+            type="button"
+            className="btn btn-ghost text-xs"
+            onClick={loadStock}
+          >
+            Recarregar itens
+          </button>
+        </div>
+        {loading && (
+          <div className="text-xs text-gray-500">Carregando itens de estoque…</div>
+        )}
+        {!loading && !items.length && (
+          <div className="text-xs text-red-600">
+            Nenhum item encontrado em &quot;Cadastro_Estoque&quot;.
+          </div>
+        )}
+        {!loading && items.length > 0 && (
+          <div className="overflow-auto">
+            <table className="min-w-full border text-sm">
+              <thead className="bg-gray-100">
+                <tr>
+                  <th className="border px-3 py-2 text-left">Item</th>
+                  <th className="border px-3 py-2 text-left">Armazenamento</th>
+                  <th className="border px-3 py-2 text-left">Estoque atual</th>
+                </tr>
+              </thead>
+              <tbody>
+                {items.map((it) => (
+                  <tr key={it.item}>
+                    <td className="border px-3 py-2">
+                      <div className="font-medium">{it.item}</div>
+                      {it.categoria && (
+                        <div className="text-xs text-gray-500">
+                          Categoria: {it.categoria}
+                        </div>
+                      )}
+                    </td>
+                    <td className="border px-3 py-2">
+                      {it.armazenamento || <span className="text-xs text-gray-400">—</span>}
+                    </td>
+                    <td className="border px-3 py-2">
+                      <input
+                        type="number"
+                        min={0}
+                        className="input w-24"
+                        value={quantities[it.item] ?? ""}
+                        onChange={(e) =>
+                          handleQtyChange(it.item, e.target.value)
+                        }
+                        placeholder="0"
+                      />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* Botão principal */}
+      <div className="pt-2">
+        <button onClick={handleCreateList} className="btn btn-primary">
+          Criar lista de compras
         </button>
       </div>
     </div>
