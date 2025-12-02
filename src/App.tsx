@@ -22,6 +22,7 @@ interface StockItem {
   estoqueMax: number | null;
   ondeComprar: string;
   observacao: string;
+  setor?: string; // novo campo vindo da coluna "Setor" da planilha
 }
 
 interface TabButtonProps {
@@ -287,14 +288,13 @@ export default function App() {
               onClick={() => setActiveTab("presenca")}
               label="Registrar presença"
             />
-            {/* 4) Compras de Estoque – só admin */}
-            {!isColab && (
-              <TabButton
-                icon={<ShoppingCart className="w-4 h-4" />}
-                active={activeTab === "estoque"}
-                onClick={() => setActiveTab("estoque")}
-                label="Compras de Estoque"
-              />
+            {/* 4) Compras de Estoque – agora visível para todos */}
+<TabButton
+  icon={<ShoppingCart className="w-4 h-4" />}
+  active={activeTab === "estoque"}
+  onClick={() => setActiveTab("estoque")}
+  label="Compras de Estoque"
+/>
             )}
             {/* 5) Comissão e Pagamento – só admin */}
             {!isColab && (
