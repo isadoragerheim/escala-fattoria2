@@ -1427,7 +1427,35 @@ function StockTab() {
       const resp = await fetch(url);
       const data = await resp.json();
       if (data?.ok && Array.isArray(data.items)) {
-        setItems(data.items as StockItem[]);
+        // Faz um mapeamento defensivo para aceitar "setor" ou "Setor" (e outros)
+        const mapped: StockItem[] = (data.items as any[]).map((raw) => {
+          const setorRaw =
+            raw.setor ??
+            raw.Setor ??
+            raw.setor_nome ??
+            raw["Setor "] ??
+            "";
+
+          return {
+            item: raw.item ?? raw.Item ?? "",
+            categoria: raw.categoria ?? raw.Categoria ?? "",
+            armazenamento: raw.armazenamento ?? raw.Armazenamento ?? "",
+            estoqueMin:
+              raw.estoqueMin ??
+              raw.estoque_min ??
+              raw.EstoqueMin ??
+              null,
+            estoqueMax:
+              raw.estoqueMax ??
+              raw.estoque_max ??
+              raw.EstoqueMax ??
+              null,
+            ondeComprar: raw.ondeComprar ?? raw.OndeComprar ?? "",
+            observacao: raw.observacao ?? raw.Observacao ?? "",
+            setor: setorRaw ? String(setorRaw).trim() : undefined,
+          };
+        });
+        setItems(mapped);
       } else {
         console.error("Resposta inválida em /stock", data);
       }
@@ -1658,6 +1686,7 @@ function StockTab() {
     </div>
   );
 }
+
 
 function ClearTab({
   weekId,
