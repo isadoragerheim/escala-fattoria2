@@ -22,8 +22,9 @@ interface StockItem {
   estoqueMax: number | null;
   ondeComprar: string;
   observacao: string;
-  setor?: string; // novo campo vindo da coluna "Setor"
+  setor?: string; // 👈 novo campo, opcional
 }
+
 
 interface TabButtonProps {
   label: string;
@@ -1426,36 +1427,11 @@ function StockTab() {
       const url = `${SYNC_ENDPOINT}?action=stock`;
       const resp = await fetch(url);
       const data = await resp.json();
-      if (data?.ok && Array.isArray(data.items)) {
-        // Faz um mapeamento defensivo para aceitar "setor" ou "Setor" (e outros)
-        const mapped: StockItem[] = (data.items as any[]).map((raw) => {
-          const setorRaw =
-            raw.setor ??
-            raw.Setor ??
-            raw.setor_nome ??
-            raw["Setor "] ??
-            "";
 
-          return {
-            item: raw.item ?? raw.Item ?? "",
-            categoria: raw.categoria ?? raw.Categoria ?? "",
-            armazenamento: raw.armazenamento ?? raw.Armazenamento ?? "",
-            estoqueMin:
-              raw.estoqueMin ??
-              raw.estoque_min ??
-              raw.EstoqueMin ??
-              null,
-            estoqueMax:
-              raw.estoqueMax ??
-              raw.estoque_max ??
-              raw.EstoqueMax ??
-              null,
-            ondeComprar: raw.ondeComprar ?? raw.OndeComprar ?? "",
-            observacao: raw.observacao ?? raw.Observacao ?? "",
-            setor: setorRaw ? String(setorRaw).trim() : undefined,
-          };
-        });
-        setItems(mapped);
+      if (data?.ok && Array.isArray(data.items)) {
+        // Aqui eu assumo que o Apps Script já está devolvendo "setor"
+        // Se ainda não estiver, você vai precisar ajustar o Apps Script (ver seção 3)
+        setItems(data.items as StockItem[]);
       } else {
         console.error("Resposta inválida em /stock", data);
       }
@@ -1516,7 +1492,8 @@ function StockTab() {
       return;
     }
 
-    const dateStr = formatDateForPayload(dateRaw) || formatDateForPayload(new Date());
+    const dateStr =
+      formatDateForPayload(dateRaw) || formatDateForPayload(new Date());
 
     const entries = filteredItems.map((it) => ({
       item: it.item,
@@ -1545,7 +1522,10 @@ function StockTab() {
       if (!resp.ok) {
         const txt = await resp.text().catch(() => "");
         alert(
-          `Falha ao gerar lista de compras (HTTP ${resp.status}). ${txt.slice(0, 180)}`
+          `Falha ao gerar lista de compras (HTTP ${resp.status}). ${txt.slice(
+            0,
+            180
+          )}`
         );
         return;
       }
@@ -1586,7 +1566,9 @@ function StockTab() {
           onChange={(e) => setSelectedSector(e.target.value)}
         >
           <option value="">
-            {sectors.length ? "Selecione um setor" : "Nenhum setor encontrado na planilha"}
+            {sectors.length
+              ? "Selecione um setor"
+              : "Nenhum setor encontrado na planilha"}
           </option>
           {sectors.map((s) => (
             <option key={s} value={s}>
@@ -1614,7 +1596,9 @@ function StockTab() {
           </button>
         </div>
         {loading && (
-          <div className="text-xs text-gray-500">Carregando itens de estoque…</div>
+          <div className="text-xs text-gray-500">
+            Carregando itens de estoque…
+          </div>
         )}
         {!loading && !items.length && (
           <div className="text-xs text-red-600">
@@ -1686,6 +1670,7 @@ function StockTab() {
     </div>
   );
 }
+
 
 
 function ClearTab({
