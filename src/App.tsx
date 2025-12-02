@@ -22,7 +22,7 @@ interface StockItem {
   estoqueMax: number | null;
   ondeComprar: string;
   observacao: string;
-  setor?: string; // novo campo vindo da coluna "Setor"
+  setor: string; // novo campo vindo da coluna "Setor"
 }
 
 interface TabButtonProps {
