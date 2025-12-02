@@ -1415,6 +1415,7 @@ function StockTab() {
     const todayIso = new Date().toISOString().slice(0, 10);
     setDateRaw(todayIso);
     loadStock();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function loadStock() {
@@ -1565,7 +1566,9 @@ function StockTab() {
                       )}
                     </td>
                     <td className="border px-3 py-2">
-                      {it.armazenamento || <span className="text-xs text-gray-400">—</span>}
+                      {it.armazenamento || (
+                        <span className="text-xs text-gray-400">—</span>
+                      )}
                     </td>
                     <td className="border px-3 py-2">
                       <input
