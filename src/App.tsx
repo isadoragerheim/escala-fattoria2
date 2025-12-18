@@ -428,7 +428,7 @@ function AvailabilityForm({
 }: AvailabilityFormProps) {
   const selected = state.staff.find((s) => s.id === selectedStaffId);
   const chosen = state.availability[selectedStaffId] || [];
-
+  const [saving, setSaving] = useState(false);
   const toggle = (dayId: string) => {
     const curr = new Set(chosen);
     if (curr.has(dayId)) curr.delete(dayId);
@@ -439,14 +439,19 @@ function AvailabilityForm({
   };
 
   const save = async () => {
-    if (!selected) {
-      alert("Nenhum nome foi selecionado");
-      return;
-    }
-    const chosenCodes = (state.availability[selectedStaffId] || [])
-      .map((did) => state.days.find((d) => d.id === did)?.code)
-      .filter(Boolean) as string[];
+  if (saving) return;
 
+  if (!selected) {
+    alert("Nenhum nome foi selecionado");
+    return;
+  }
+
+  const chosenCodes = (state.availability[selectedStaffId] || [])
+    .map((did) => state.days.find((d) => d.id === did)?.code)
+    .filter(Boolean) as string[];
+
+  setSaving(true);
+  try {
     if (syncEnabled && weekId) {
       try {
         const resp = await fetch(SYNC_ENDPOINT, {
@@ -460,6 +465,7 @@ function AvailabilityForm({
             days: chosenCodes,
           }),
         });
+
         // no-cors -> resposta 'opaque'
         // @ts-ignore
         if ((resp as any)?.type === "opaque" || (resp as any)?.status === 0) {
@@ -467,18 +473,22 @@ function AvailabilityForm({
           onSaved?.();
           return;
         }
+
         if (!resp.ok) {
           const txt = await resp.text().catch(() => "");
           alert(`Falha ao salvar (HTTP ${resp.status}). Resposta: ${txt.slice(0, 180)}`);
           return;
         }
+
         const txt = await resp.text();
         try {
           const data = JSON.parse(txt);
           if (data.ok) {
             alert("Suas escolhas foram salvas.");
             onSaved?.();
-          } else alert(`Falha ao salvar no servidor: ${data.error || "erro desconhecido"}`);
+          } else {
+            alert(`Falha ao salvar no servidor: ${data.error || "erro desconhecido"}`);
+          }
         } catch {
           alert("Suas escolhas foram salvas.");
           onSaved?.();
@@ -490,7 +500,11 @@ function AvailabilityForm({
       alert("Salvo localmente (modo offline).");
       onSaved?.();
     }
-  };
+  } finally {
+    setSaving(false);
+  }
+};
+
 
   return (
     <div className="space-y-3">
@@ -529,6 +543,9 @@ function AvailabilityForm({
       <button onClick={save} className={`btn ${syncEnabled ? "btn-primary" : "btn-ghost"}`}>
         Salvar minhas escolhas
       </button>
+      <button onClick={save} disabled={saving} className={`btn ${syncEnabled ? "btn-primary" : "btn-ghost"} ${saving ? "opacity-70 cursor-not-allowed" : ""}`}>
+      {saving ? "Processando..." : "Salvar minhas escolhas"}
+      </button>
       {!syncEnabled && (
         <div className="text-xs text-amber-700">Sem endpoint configurado (modo offline).</div>
       )}
@@ -539,7 +556,7 @@ function AvailabilityForm({
 // ======== ABA REGISTRAR PRESENÇA ========
 function PunchTab({ staff }: PunchTabProps) {
   const [selectedId, setSelectedId] = useState<string>("");
-
+  const [punching, setPunching] = useState(false);
   const allPeople = useMemo(() => {
     const baseNames = staff.map((s) => s.name);
     const extras = ["Eduardo", "Aryelton", "Wellington"];
@@ -618,6 +635,7 @@ function PunchTab({ staff }: PunchTabProps) {
   };
 
   const handlePunch = async () => {
+    if (punching) return;
     if (!selectedId) {
       alert("Nenhum nome foi selecionado");
       return;
@@ -678,6 +696,7 @@ function PunchTab({ staff }: PunchTabProps) {
       consumo: consumoLimpo,
     };
 
+    setPunching(true);
     try {
       const resp = await fetch(SYNC_ENDPOINT, {
         method: "POST",
@@ -698,8 +717,11 @@ function PunchTab({ staff }: PunchTabProps) {
       alert(`Presença registrada para ${name} em ${dateStr}.`);
     } catch (err: any) {
       alert(`Não foi possível enviar o registro de presença. Erro: ${String(err)}`);
+    } finally {
+      setPunching(false);
     }
-  };
+
+   
 
   const colaboradoresParaCarona = allPeople.filter((p) => p.id !== selectedId);
 
@@ -943,8 +965,8 @@ function PunchTab({ staff }: PunchTabProps) {
 
       {/* Botão registrar */}
       <div className="pt-2">
-        <button onClick={handlePunch} className="btn btn-primary">
-          Registrar presença
+        <button onClick={handlePunch} disabled={punching}  className={`btn btn-primary ${punching ? "opacity-70 cursor-not-allowed" : ""}`} >
+          {punching ? "Processando..." : "Registrar presença"}
         </button>
       </div>
     </div>
@@ -959,8 +981,19 @@ function SolverUI({ state, availability, onRefresh, weekId }: SolverUIProps) {
   const respondedSet = new Set(respondedIds);
   const missing = state.staff.filter((s) => !respondedSet.has(s.id)).map((s) => s.name);
   const total = state.staff.length;
-
+  const [refreshing, setRefreshing] = useState(false);
+  const [sendingEmails, setSendingEmails] = useState(false);
   const labelOf = (sid: string) => state.staff.find((s) => s.id === sid)?.name || "";
+
+  const handleRefreshClick = async () => {
+  if (refreshing) return;
+  setRefreshing(true);
+  try {
+    await Promise.resolve(onRefresh());
+    alert("Respostas atualizadas.");
+      } finally {setRefreshing(false);
+    }
+  };
 
   const availNamesByDay: Record<string, string[]> = useMemo(() => {
     const out: Record<string, string[]> = {};
@@ -1082,16 +1115,16 @@ function SolverUI({ state, availability, onRefresh, weekId }: SolverUIProps) {
             {total - missing.length} de {total} já responderam.
             <span className="block text-xs mt-1">Sem resposta: {missing.join(", ")}</span>
             <div className="mt-2">
-              <button onClick={onRefresh} className="btn btn-ghost text-sm">
-                Atualizar respostas
+              <button onClick={handleRefreshClick} disabled={refreshing} className={`btn btn-ghost text-sm ${refreshing ? "opacity-70 cursor-not-allowed" : ""}`} >
+                {refreshing ? "Processando..." : "Atualizar respostas"}
               </button>
             </div>
           </div>
         )}
         {missing.length === 0 && (
           <div className="mt-2">
-            <button onClick={onRefresh} className="btn btn-ghost text-sm">
-              Atualizar respostas
+            <button onClick={handleRefreshClick} disabled={refreshing} className={`btn btn-ghost text-sm ${refreshing ? "opacity-70 cursor-not-allowed" : ""}`} >
+               {refreshing ? "Processando..." : "Atualizar respostas"}
             </button>
           </div>
         )}
@@ -1198,6 +1231,8 @@ function SolverUI({ state, availability, onRefresh, weekId }: SolverUIProps) {
 
 // ======== COMISSÃO E PAGAMENTO ========
 function CommissionTab() {
+  const [savingCommission, setSavingCommission] = useState(false);
+  const [generatingReports, setGeneratingReports] = useState(false);
   const [dateRaw, setDateRaw] = useState<string>("");
   const [turno, setTurno] = useState<string>("Almoço");
   const [valor, setValor] = useState<string>("");
