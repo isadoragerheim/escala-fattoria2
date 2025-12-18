@@ -396,6 +396,22 @@ function AvailabilityForm({
   const selected = state.staff.find((s) => s.id === selectedStaffId);
   const chosen = state.availability[selectedStaffId] || [];
   const [saving, setSaving] = useState(false);
+  const hasEntry =
+    !!selectedStaffId &&
+    Object.prototype.hasOwnProperty.call(state.availability, selectedStaffId);
+  const noAvailability = !!selectedStaffId && hasEntry && chosen.length === 0;
+
+  const setNoAvailability = (val: boolean) => {
+    if (!selectedStaffId) return;
+    if (val) {
+      update({ availability: { ...state.availability, [selectedStaffId]: [] } });
+    } else {
+      const next = { ...state.availability };
+      delete next[selectedStaffId];
+      update({ availability: next });
+    }
+  };
+
   const toggle = (dayId: string) => {
     const curr = new Set(chosen);
     if (curr.has(dayId)) curr.delete(dayId);
@@ -404,6 +420,7 @@ function AvailabilityForm({
       availability: { ...state.availability, [selectedStaffId]: Array.from(curr) },
     });
   };
+
 
   const save = async () => {
   if (saving) return;
