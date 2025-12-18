@@ -428,6 +428,22 @@ function AvailabilityForm({
   const selected = state.staff.find((s) => s.id === selectedStaffId);
   const chosen = state.availability[selectedStaffId] || [];
   const [saving, setSaving] = useState(false);
+  const hasEntry =
+    !!selectedStaffId &&
+    Object.prototype.hasOwnProperty.call(state.availability, selectedStaffId);
+  const noAvailability = !!selectedStaffId && hasEntry && chosen.length === 0;
+
+  const setNoAvailability = (val: boolean) => {
+    if (!selectedStaffId) return;
+    if (val) {
+      update({ availability: { ...state.availability, [selectedStaffId]: [] } });
+    } else {
+      const next = { ...state.availability };
+      delete next[selectedStaffId];
+      update({ availability: next });
+    }
+  };
+
   const toggle = (dayId: string) => {
     const curr = new Set(chosen);
     if (curr.has(dayId)) curr.delete(dayId);
@@ -523,15 +539,28 @@ function AvailabilityForm({
         </select>
       </div>
 
+      <label className="flex items-center gap-2 border rounded-xl px-3 py-2 bg-white">
+        <input
+          type="checkbox"
+          checked={noAvailability}
+          disabled={!selectedStaffId}
+          onChange={(e) => setNoAvailability(e.target.checked)}
+        />
+        <span className="font-medium">Sem disponibilidade essa semana</span>
+      </label>
+
       <div className="grid sm:grid-cols-2 gap-2">
         {state.days.map((d) => (
           <label
             key={d.id}
-            className="flex items-center gap-2 border rounded-xl px-3 py-2 bg-white"
+            className={`flex items-center gap-2 border rounded-xl px-3 py-2 ${
+              noAvailability ? "bg-gray-50 opacity-70" : "bg-white"
+            }`}
           >
             <input
               type="checkbox"
               checked={chosen.includes(d.id)}
+              disabled={!selectedStaffId || noAvailability}
               onChange={() => toggle(d.id)}
             />
             <span>{d.label}</span>
@@ -539,11 +568,14 @@ function AvailabilityForm({
         ))}
       </div>
 
-      <button onClick={save} className={`btn ${syncEnabled ? "btn-primary" : "btn-ghost"}`}>
-        Salvar minhas escolhas
-      </button>
-      <button onClick={save} disabled={saving} className={`btn ${syncEnabled ? "btn-primary" : "btn-ghost"} ${saving ? "opacity-70 cursor-not-allowed" : ""}`}>
-      {saving ? "Processando..." : "Salvar minhas escolhas"}
+      <button
+        onClick={save}
+        disabled={saving || !selectedStaffId}
+        className={`btn ${syncEnabled ? "btn-primary" : "btn-ghost"} ${
+          saving || !selectedStaffId ? "opacity-70 cursor-not-allowed" : ""
+        }`}
+      >
+        {saving ? "Processando..." : "Salvar minhas escolhas"}
       </button>
       {!syncEnabled && (
         <div className="text-xs text-amber-700">Sem endpoint configurado (modo offline).</div>
