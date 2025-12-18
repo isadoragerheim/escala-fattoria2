@@ -718,7 +718,7 @@ function PunchTab({ staff }: PunchTabProps) {
       alert(`Não foi possível enviar o registro de presença. Erro: ${String(err)}`);
     } finally {
       setPunching(false);
-    }
+    };
 
    
 
