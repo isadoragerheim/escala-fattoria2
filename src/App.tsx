@@ -295,6 +295,15 @@ export default function App() {
               onClick={() => setActiveTab("estoque")}
               label="Compras de Estoque"
             />
+            {/* 5) Comissão e Pagamento – só admin */}
+            {!isColab && (
+              <TabButton
+                icon={<Cal className="w-4 h-4" />}
+                active={activeTab === "comissao"}
+                onClick={() => setActiveTab("comissao")}
+                label="Comissão e Pagamento"
+              />
+            )}
             </div>
         </header>
 
