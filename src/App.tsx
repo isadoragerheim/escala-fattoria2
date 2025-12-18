@@ -427,25 +427,60 @@ function AvailabilityForm({
   onSaved,
 }: AvailabilityFormProps) {
   const selected = state.staff.find((s) => s.id === selectedStaffId);
-  const chosen = state.availability[selectedStaffId] || [];
+  const chosenRaw = state.availability[selectedStaffId] || [];
+  const noAvail = chosenRaw.includes(NO_AVAIL);
+  const chosen = chosenRaw.filter((x) => x !== NO_AVAIL);
+
+  const NO_AVAIL = "__NONE__";
+  <label className="flex items-center gap-2 border rounded-xl px-3 py-2 bg-white">
+  <input type="checkbox" checked={noAvail} onChange={toggleNoAvail} />
+  <span>Sem disponibilidade essa semana</span>
+</label>
+  <input
+  type="checkbox"
+  checked={chosen.includes(d.id)}
+  disabled={noAvail}
+  onChange={() => toggle(d.id)}
+/>
+
 
   const toggle = (dayId: string) => {
-    const curr = new Set(chosen);
-    if (curr.has(dayId)) curr.delete(dayId);
-    else curr.add(dayId);
-    update({
-      availability: { ...state.availability, [selectedStaffId]: Array.from(curr) },
-    });
-  };
+  const curr = new Set(chosenRaw);
+
+  // se estiver marcado "sem disponibilidade", ao escolher um dia, desmarca o "sem disponibilidade"
+  if (curr.has(NO_AVAIL)) curr.delete(NO_AVAIL);
+
+  if (curr.has(dayId)) curr.delete(dayId);
+  else curr.add(dayId);
+
+  update({ availability: { ...state.availability, [selectedStaffId]: Array.from(curr) } });
+};
+
+  const toggleNoAvail = () => {
+  const curr = new Set(chosenRaw);
+  if (curr.has(NO_AVAIL)) {
+    curr.delete(NO_AVAIL);
+  } else {
+    // marca NO_AVAIL e limpa dias
+    curr.clear();
+    curr.add(NO_AVAIL);
+  }
+  update({ availability: { ...state.availability, [selectedStaffId]: Array.from(curr) } });
+};
+
 
   const save = async () => {
     if (!selected) {
       alert("Nenhum nome foi selecionado");
       return;
     }
-    const chosenCodes = (state.availability[selectedStaffId] || [])
+    const raw = state.availability[selectedStaffId] || [];
+const chosenCodes = raw.includes(NO_AVAIL)
+  ? ["none"]
+  : raw
       .map((did) => state.days.find((d) => d.id === did)?.code)
       .filter(Boolean) as string[];
+
 
     if (syncEnabled && weekId) {
       try {
@@ -539,6 +574,8 @@ function AvailabilityForm({
 // ======== ABA REGISTRAR PRESENÇA ========
 function PunchTab({ staff }: PunchTabProps) {
   const [selectedId, setSelectedId] = useState<string>("");
+  const [punching, setPunching] = useState(false);
+
 
   const allPeople = useMemo(() => {
     const baseNames = staff.map((s) => s.name);
@@ -618,6 +655,10 @@ function PunchTab({ staff }: PunchTabProps) {
   };
 
   const handlePunch = async () => {
+  if (punching) return;
+  setPunching(true);
+
+  try {
     if (!selectedId) {
       alert("Nenhum nome foi selecionado");
       return;
@@ -626,6 +667,95 @@ function PunchTab({ staff }: PunchTabProps) {
       alert("Selecione a data.");
       return;
     }
+
+    const entry = allPeople.find((p) => p.id === selectedId);
+    const name = entry?.label || "";
+    if (!name) {
+      alert("Seleção inválida.");
+      return;
+    }
+
+    if (!SYNC_ENDPOINT) {
+      alert(`Presença registrada localmente para ${name}, mas nenhum endpoint está configurado.`);
+      return;
+    }
+
+    const dateStr = formatDateForPayload(dateRaw);
+    if (!dateStr) {
+      alert("Data inválida.");
+      return;
+    }
+
+    // ✅ CHECA DUPLICIDADE NO SERVIDOR (GET)
+    try {
+      const checkUrl =
+        `${SYNC_ENDPOINT}?action=ponto_check&date=${encodeURIComponent(dateStr)}` +
+        `&turno=${encodeURIComponent(turno)}&staff=${encodeURIComponent(name)}`;
+      const checkResp = await fetch(checkUrl);
+      const checkData = await checkResp.json();
+      if (checkData?.ok && checkData?.exists) {
+        alert(checkData.message || `A presença de ${name} já registrada para esse dia e turno`);
+        return;
+      }
+    } catch {
+      // se falhar a checagem, segue (mas o server também bloqueia no doPost)
+    }
+
+    const consumoLimpo = consumoItems
+      .filter((c) => c.product && c.quantity)
+      .map((c) => ({ product: c.product, quantity: c.quantity }));
+
+    const payload = {
+      action: "ponto",
+      date: dateStr,
+      staff: name,
+      timestamp: new Date().toISOString(),
+      turno,
+      setor,
+      transporte: {
+        ida: {
+          modo: idaModo,
+          caronaCom: idaModo === "carona" ? idaCarona : "",
+          onibusQtd: idaModo === "onibus" ? idaOnibusQtd : "",
+          uberValor: idaModo === "uber" ? idaUberValor : "",
+        },
+        volta: {
+          modo: voltaModo,
+          caronaCom: voltaModo === "carona" ? voltaCarona : "",
+          onibusQtd: voltaModo === "onibus" ? voltaOnibusQtd : "",
+          uberValor: voltaModo === "uber" ? voltaUberValor : "",
+        },
+      },
+      consumo: consumoLimpo,
+    };
+
+    const resp = await fetch(SYNC_ENDPOINT, {
+      method: "POST",
+      mode: "no-cors",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify(payload),
+    });
+
+    // @ts-ignore
+    if ((resp as any)?.type === "opaque" || (resp as any)?.status === 0) {
+      alert(`Presença registrada para ${name} em ${dateStr}.`);
+      return;
+    }
+
+    if (!resp.ok) {
+      const txt = await resp.text().catch(() => "");
+      alert(`Falha ao registrar presença (HTTP ${resp.status}). ${txt.slice(0, 180)}`);
+      return;
+    }
+
+    alert(`Presença registrada para ${name} em ${dateStr}.`);
+  } catch (err: any) {
+    alert(`Não foi possível enviar o registro de presença. Erro: ${String(err)}`);
+  } finally {
+    setPunching(false);
+  }
+};
+
 
     const entry = allPeople.find((p) => p.id === selectedId);
     const name = entry?.label || "";
@@ -943,9 +1073,10 @@ function PunchTab({ staff }: PunchTabProps) {
 
       {/* Botão registrar */}
       <div className="pt-2">
-        <button onClick={handlePunch} className="btn btn-primary">
-          Registrar presença
-        </button>
+        <button onClick={handlePunch} className="btn btn-primary" disabled={punching}>
+      {punching ? "Processando..." : "Registrar presença"}
+      </button>
+
       </div>
     </div>
   );
