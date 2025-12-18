@@ -1,8 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import {
-  Trash2,
-  Calendar as Cal,
+Calendar as Cal,
   RefreshCw,
   ClipboardList,
   ShoppingCart,
@@ -135,7 +134,7 @@ export default function App() {
   const [mode, setMode] = useState<Mode>("admin");
 
   const [activeTab, setActiveTab] = useState<
-    "disponibilidade" | "escalar" | "presenca" | "estoque" | "comissao" | "limpar"
+    "disponibilidade" | "escalar" | "presenca" | "estoque" | "comissao"
   >("disponibilidade");
 
   const [selectedStaffId, setSelectedStaffId] = useState<string>("");
@@ -296,25 +295,7 @@ export default function App() {
               onClick={() => setActiveTab("estoque")}
               label="Compras de Estoque"
             />
-            {/* 5) Comissão e Pagamento – só admin */}
-            {!isColab && (
-              <TabButton
-                icon={<Cal className="w-4 h-4" />}
-                active={activeTab === "comissao"}
-                onClick={() => setActiveTab("comissao")}
-                label="Comissão e Pagamento"
-              />
-            )}
-            {/* 6) Limpar – só admin */}
-            {!isColab && (
-              <TabButton
-                icon={<Trash2 className="w-4 h-4" />}
-                active={activeTab === "limpar"}
-                onClick={() => setActiveTab("limpar")}
-                label="Limpar"
-              />
-            )}
-          </div>
+            </div>
         </header>
 
         {/* Disponibilidade – sempre acessível */}
@@ -368,20 +349,7 @@ export default function App() {
           </Card>
         )}
 
-        {/* Limpar – apenas admin */}
-        {!isColab && activeTab === "limpar" && (
-          <Card title="Limpar respostas da semana" icon={<Trash2 className="w-5 h-5" />}>
-            <ClearTab
-              weekId={weekIdDash}
-              onClearLocal={() =>
-                setState((prev) => ({
-                  ...prev,
-                  availability: {},
-                }))
-              }
-            />
-          </Card>
-        )}
+        
 
         <div className="mt-6 text-xs text-gray-500 flex items-center gap-2">
           <RefreshCw className="w-4 h-4" /> 
@@ -428,22 +396,6 @@ function AvailabilityForm({
   const selected = state.staff.find((s) => s.id === selectedStaffId);
   const chosen = state.availability[selectedStaffId] || [];
   const [saving, setSaving] = useState(false);
-  const hasEntry =
-    !!selectedStaffId &&
-    Object.prototype.hasOwnProperty.call(state.availability, selectedStaffId);
-  const noAvailability = !!selectedStaffId && hasEntry && chosen.length === 0;
-
-  const setNoAvailability = (val: boolean) => {
-    if (!selectedStaffId) return;
-    if (val) {
-      update({ availability: { ...state.availability, [selectedStaffId]: [] } });
-    } else {
-      const next = { ...state.availability };
-      delete next[selectedStaffId];
-      update({ availability: next });
-    }
-  };
-
   const toggle = (dayId: string) => {
     const curr = new Set(chosen);
     if (curr.has(dayId)) curr.delete(dayId);
@@ -539,28 +491,15 @@ function AvailabilityForm({
         </select>
       </div>
 
-      <label className="flex items-center gap-2 border rounded-xl px-3 py-2 bg-white">
-        <input
-          type="checkbox"
-          checked={noAvailability}
-          disabled={!selectedStaffId}
-          onChange={(e) => setNoAvailability(e.target.checked)}
-        />
-        <span className="font-medium">Sem disponibilidade essa semana</span>
-      </label>
-
       <div className="grid sm:grid-cols-2 gap-2">
         {state.days.map((d) => (
           <label
             key={d.id}
-            className={`flex items-center gap-2 border rounded-xl px-3 py-2 ${
-              noAvailability ? "bg-gray-50 opacity-70" : "bg-white"
-            }`}
+            className="flex items-center gap-2 border rounded-xl px-3 py-2 bg-white"
           >
             <input
               type="checkbox"
               checked={chosen.includes(d.id)}
-              disabled={!selectedStaffId || noAvailability}
               onChange={() => toggle(d.id)}
             />
             <span>{d.label}</span>
@@ -568,14 +507,8 @@ function AvailabilityForm({
         ))}
       </div>
 
-      <button
-        onClick={save}
-        disabled={saving || !selectedStaffId}
-        className={`btn ${syncEnabled ? "btn-primary" : "btn-ghost"} ${
-          saving || !selectedStaffId ? "opacity-70 cursor-not-allowed" : ""
-        }`}
-      >
-        {saving ? "Processando..." : "Salvar minhas escolhas"}
+      <button onClick={save} disabled={saving} className={`btn ${syncEnabled ? "btn-primary" : "btn-ghost"} ${saving ? "opacity-70 cursor-not-allowed" : ""}`}>
+      {saving ? "Processando..." : "Salvar minhas escolhas"}
       </button>
       {!syncEnabled && (
         <div className="text-xs text-amber-700">Sem endpoint configurado (modo offline).</div>
@@ -1734,53 +1667,6 @@ function StockTab() {
           Criar lista de compras
         </button>
       </div>
-    </div>
-  );
-}
-
-
-
-function ClearTab({
-  weekId,
-  onClearLocal,
-}: {
-  weekId: string;
-  onClearLocal: () => void;
-}) {
-  const clearAll = async () => {
-    onClearLocal();
-    if (SYNC_ENDPOINT && weekId) {
-      try {
-        const resp = await fetch(SYNC_ENDPOINT, {
-          method: "POST",
-          mode: "no-cors",
-          headers: { "Content-Type": "text/plain;charset=utf-8" },
-          body: JSON.stringify({ action: "clear", weekId }),
-        });
-        // @ts-ignore
-        if ((resp as any)?.type === "opaque" || (resp as any)?.status === 0) {
-          alert("Respostas da semana limpas.");
-          return;
-        }
-        if (!resp.ok) {
-          const txt = await resp.text().catch(() => "");
-          alert(`Falha ao limpar (HTTP ${resp.status}). ${txt.slice(0, 180)}`);
-          return;
-        }
-      } catch {}
-    }
-    alert("Respostas da semana limpas.");
-  };
-
-  return (
-    <div className="flex items-center justify-between">
-      <div className="text-sm text-gray-600">
-        Use este botão no início de cada semana para zerar as respostas. Semana atual:{" "}
-        <b>{weekId || "-"}</b>
-      </div>
-      <button onClick={clearAll} className="btn btn-primary">
-        Limpar
-      </button>
     </div>
   );
 }
