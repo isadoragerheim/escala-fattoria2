@@ -399,11 +399,8 @@ export default function App() {
         )}
         {/* Gráficos – apenas admin */}
         {!isColab && {activeTab === "graficos" && <GraphsTab />}
+        )}   
       
-      
-
-        
-
         <div className="mt-6 text-xs text-gray-500 flex items-center gap-2">
           <RefreshCw className="w-4 h-4" /> 
         </div>
