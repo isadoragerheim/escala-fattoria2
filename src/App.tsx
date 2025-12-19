@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
-import { Trash2, Calendar as Cal, RefreshCw, ClipboardList, Share2, Copy, BarChart3 } from "lucide-react";
+import { Trash2, Share2, Copy, BarChart3 } from "lucide-react";
 import {
 Calendar as Cal,
   RefreshCw,
