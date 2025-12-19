@@ -1486,9 +1486,9 @@ function DashboardTab() {
             <tbody>
               {rows.map((r, idx) => (
                 <tr key={idx}>
-                  <td className="border px-3 py-2">{r.dt_contabil || ""}</td>
-                  <td className="border px-3 py-2">{r.grupo || ""}</td>
-                  <td className="border px-3 py-2">{r.descricao || ""}</td>
+                  <td className="border px-3 py-2">{r.dt_contabil}</td>
+                  <td className="border px-3 py-2">{r.grupo}</td>
+                  <td className="border px-3 py-2">{r.descricao}</td>
                   <td className="border px-3 py-2 text-right">{r.qtd}</td>
                   <td className="border px-3 py-2 text-right">{fmtMoney(r.vl_servico_informado)}</td>
                   <td className="border px-3 py-2 text-right">{fmtMoney(r.vl_servico_calculado)}</td>
@@ -1497,7 +1497,7 @@ function DashboardTab() {
               ))}
 
               <tr className="bg-gray-50 font-semibold">
-                <td className="border px-3 py-2" colSpan={6}>
+                
                   Total
                 </td>
                 <td className="border px-3 py-2" colSpan={3}>Total</td>
