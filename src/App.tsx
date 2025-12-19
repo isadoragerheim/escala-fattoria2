@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
+import { Trash2, Calendar as Cal, RefreshCw, ClipboardList, Share2, Copy, BarChart3 } from "lucide-react";
 import {
 Calendar as Cal,
   RefreshCw,
@@ -134,7 +135,7 @@ export default function App() {
   const [mode, setMode] = useState<Mode>("admin");
 
   const [activeTab, setActiveTab] = useState<
-    "disponibilidade" | "escalar" | "presenca" | "estoque" | "comissao"
+  "disponibilidade" | "escalar" | "presenca" | "estoque" | "comissao" | "dashboard"
   >("disponibilidade");
 
   const [selectedStaffId, setSelectedStaffId] = useState<string>("");
@@ -304,6 +305,16 @@ export default function App() {
                 label="Comissão e Pagamento"
               />
             )}
+            {/* 6) Dashboard – só admin */}
+            {!isColab && (
+              <TabButton
+                icon={<BarChart3 className="w-4 h-4" />}
+                active={activeTab === "dashboard"}
+                onClick={() => setActiveTab("dashboard")}
+                label="Dashboard"
+              />
+            )}
+          
             </div>
         </header>
 
@@ -355,6 +366,12 @@ export default function App() {
         {!isColab && activeTab === "comissao" && (
           <Card title="Comissão e Pagamento" icon={<Cal className="w-5 h-5" />}>
             <CommissionTab />
+          </Card>
+        )}
+        {/* Dashboard – apenas admin */}
+        {!isColab && activeTab === "dashboard" && (
+          <Card title="Dashboard" icon={<BarChart3 className="w-5 h-5" />}>
+            <DashboardTab />
           </Card>
         )}
 
@@ -1238,7 +1255,233 @@ function SolverUI({ state, availability, onRefresh, weekId }: SolverUIProps) {
   );
 }
 
+
+// ======== DASHBOARD ===========
+
+type DashboardMeta = {
+  minDate: string; // YYYY-MM-DD
+  maxDate: string; // YYYY-MM-DD
+  groups: string[];
+  items: string[];
+};
+
+type DashboardRow = {
+  dt_contabil: string; // YYYY-MM-DD
+  grupo: string;
+  descricao: string;
+  vl_servico_informado: number;
+  vl_servico_calculado: number;
+  comissao_paga_real_pago: string; // "12.34%"
+  vl_total: number;
+};
+
+function DashboardTab() {
+  const [meta, setMeta] = useState<DashboardMeta | null>(null);
+  const [loadingMeta, setLoadingMeta] = useState(false);
+  const [loading, setLoading] = useState(false);
+
+  const [start, setStart] = useState<string>("");
+  const [end, setEnd] = useState<string>("");
+
+  const [grupo, setGrupo] = useState<string>("Tudo");
+  const [descricao, setDescricao] = useState<string>("Tudo");
+
+  const [rows, setRows] = useState<DashboardRow[]>([]);
+  const [totalVlTotal, setTotalVlTotal] = useState<number>(0);
+
+  const fmtMoney = (n: number) =>
+    new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(Number(n || 0));
+
+  const loadMeta = async () => {
+    if (!SYNC_ENDPOINT) return;
+    setLoadingMeta(true);
+    try {
+      const url = `${SYNC_ENDPOINT}?action=dashboard_base_meta`;
+      const resp = await fetch(url);
+      const data = await resp.json();
+      if (!data?.ok) throw new Error(data?.error || "Resposta inválida (meta).");
+
+      const m: DashboardMeta = {
+        minDate: String(data.minDate || ""),
+        maxDate: String(data.maxDate || ""),
+        groups: Array.isArray(data.groups) ? data.groups : [],
+        items: Array.isArray(data.items) ? data.items : [],
+      };
+
+      setMeta(m);
+      // defaults iniciais
+      if (!start && m.minDate) setStart(m.minDate);
+      if (!end && m.maxDate) setEnd(m.maxDate);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoadingMeta(false);
+    }
+  };
+
+  const loadRows = async () => {
+    if (!SYNC_ENDPOINT) return;
+    if (!start || !end) return;
+
+    setLoading(true);
+    try {
+      const url =
+        `${SYNC_ENDPOINT}?action=dashboard_base_rows` +
+        `&start=${encodeURIComponent(start)}` +
+        `&end=${encodeURIComponent(end)}` +
+        `&grupo=${encodeURIComponent(grupo)}` +
+        `&descricao=${encodeURIComponent(descricao)}`;
+
+      const resp = await fetch(url);
+      const data = await resp.json();
+      if (!data?.ok) throw new Error(data?.error || "Resposta inválida (rows).");
+
+      setRows(Array.isArray(data.rows) ? (data.rows as DashboardRow[]) : []);
+      setTotalVlTotal(Number(data.totalVlTotal || 0));
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadMeta();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Carrega tabela automaticamente quando filtros mudam (mantém simples e direto)
+  useEffect(() => {
+    if (!meta) return;
+    if (!start || !end) return;
+    loadRows();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [meta, start, end, grupo, descricao]);
+
+  if (!SYNC_ENDPOINT) {
+    return <div className="text-sm text-red-600">Nenhum endpoint de sincronização configurado.</div>;
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="border rounded-xl p-4 bg-white space-y-4">
+        <div className="flex items-center justify-between">
+          <h3 className="font-semibold text-base">Análise 1</h3>
+          <button
+            onClick={loadRows}
+            disabled={loading || !start || !end}
+            className={`btn btn-ghost text-sm ${loading ? "opacity-70 cursor-not-allowed" : ""}`}
+          >
+            {loading ? "Atualizando..." : "Atualizar"}
+          </button>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+          <div className="space-y-1">
+            <label className="text-sm text-gray-600">Data inicial (dt_contabil)</label>
+            <input
+              type="date"
+              className="input w-full"
+              value={start}
+              onChange={(e) => setStart(e.target.value)}
+              disabled={loadingMeta}
+            />
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-sm text-gray-600">Data final (dt_contabil)</label>
+            <input
+              type="date"
+              className="input w-full"
+              value={end}
+              onChange={(e) => setEnd(e.target.value)}
+              disabled={loadingMeta}
+            />
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-sm text-gray-600">Categorias (grupo)</label>
+            <select
+              className="input w-full"
+              value={grupo}
+              onChange={(e) => setGrupo(e.target.value)}
+              disabled={loadingMeta}
+            >
+              <option value="Tudo">Tudo</option>
+              {(meta?.groups || []).map((g) => (
+                <option key={g} value={g}>
+                  {g}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-sm text-gray-600">Item (descricao)</label>
+            <select
+              className="input w-full"
+              value={descricao}
+              onChange={(e) => setDescricao(e.target.value)}
+              disabled={loadingMeta}
+            >
+              <option value="Tudo">Tudo</option>
+              {(meta?.items || []).map((it) => (
+                <option key={it} value={it}>
+                  {it}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        <div className="overflow-auto">
+          <table className="min-w-full border text-sm">
+            <thead className="bg-gray-100">
+              <tr>
+                <th className="border px-3 py-2 text-left">dt_contabil</th>
+                <th className="border px-3 py-2 text-left">grupo</th>
+                <th className="border px-3 py-2 text-left">descricao</th>
+                <th className="border px-3 py-2 text-right">vl_servico_informado</th>
+                <th className="border px-3 py-2 text-right">vl_servico_calculado</th>
+                <th className="border px-3 py-2 text-right">Comissão Paga (real - pago)</th>
+                <th className="border px-3 py-2 text-right">vl_total</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r, idx) => (
+                <tr key={idx}>
+                  <td className="border px-3 py-2">{r.dt_contabil || ""}</td>
+                  <td className="border px-3 py-2">{r.grupo || ""}</td>
+                  <td className="border px-3 py-2">{r.descricao || ""}</td>
+                  <td className="border px-3 py-2 text-right">{fmtMoney(r.vl_servico_informado)}</td>
+                  <td className="border px-3 py-2 text-right">{fmtMoney(r.vl_servico_calculado)}</td>
+                  <td className="border px-3 py-2 text-right">{r.comissao_paga_real_pago || "0.00%"}</td>
+                  <td className="border px-3 py-2 text-right">{fmtMoney(r.vl_total)}</td>
+                </tr>
+              ))}
+
+              <tr className="bg-gray-50 font-semibold">
+                <td className="border px-3 py-2" colSpan={6}>
+                  Total
+                </td>
+                <td className="border px-3 py-2 text-right">{fmtMoney(totalVlTotal)}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        {rows.length === 0 && !loading && (
+          <div className="text-sm text-gray-500">Nenhum registro para os filtros selecionados.</div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+
 // ======== COMISSÃO E PAGAMENTO ========
+
+
 function CommissionTab() {
   const [savingCommission, setSavingCommission] = useState(false);
   const [generatingReports, setGeneratingReports] = useState(false);
