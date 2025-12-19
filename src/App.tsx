@@ -1270,7 +1270,7 @@ type DashboardRow = {
   dt_contabil: string;
   grupo: string;
   descricao: string;
-  qtd: number; // novo
+  qtd: number;
   vl_servico_informado: number;
   vl_servico_calculado: number;
   vl_total: number;
@@ -1280,6 +1280,7 @@ function DashboardTab() {
   const [meta, setMeta] = useState<DashboardMeta | null>(null);
   const [loadingMeta, setLoadingMeta] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [weekday, setWeekday] = useState<string>("Tudo");
 
   const [start, setStart] = useState<string>("");
   const [end, setEnd] = useState<string>("");
@@ -1343,7 +1344,8 @@ function DashboardTab() {
         `&start=${encodeURIComponent(start)}` +
         `&end=${encodeURIComponent(end)}` +
         `&grupo=${encodeURIComponent(grupo)}` +
-        `&descricao=${encodeURIComponent(descricao)}`;
+        `&descricao=${encodeURIComponent(descricao)}`+
+        `&weekday=${encodeURIComponent(weekday)}`;
 
       const resp = await fetch(url);
       const data = await resp.json();
@@ -1372,7 +1374,7 @@ function DashboardTab() {
     if (!start || !end) return;
     loadRows();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [meta, start, end, grupo, descricao]);
+  }, [meta, start, end, grupo, descricao, weekday]);
 
   if (!SYNC_ENDPOINT) {
     return <div className="text-sm text-red-600">Nenhum endpoint de sincronização configurado.</div>;
@@ -1455,6 +1457,20 @@ function DashboardTab() {
           </div>
         </div>
 
+          <div className="space-y-1">
+              <label className="text-sm text-gray-600">Dia da semana</label>
+              <select className="input w-full" value={weekday} onChange={(e) => setWeekday(e.target.value)}>
+                <option value="Tudo">Tudo</option>
+                <option value="domingo">Domingo</option>
+                <option value="segunda">Segunda</option>
+                <option value="terca">Terça</option>
+                <option value="quarta">Quarta</option>
+                <option value="quinta">Quinta</option>
+                <option value="sexta">Sexta</option>
+                <option value="sabado">Sábado</option>
+            </select>
+        </div>
+
         <div className="overflow-auto">
           <table className="min-w-full border text-sm">
             <thead className="bg-gray-100">
@@ -1464,7 +1480,6 @@ function DashboardTab() {
                 <th className="border px-3 py-2 text-left">descricao</th>
                 <th className="border px-3 py-2 text-right">vl_servico_informado</th>
                 <th className="border px-3 py-2 text-right">vl_servico_calculado</th>
-                <th className="border px-3 py-2 text-right">Comissão Paga (real - pago)</th>
                 <th className="border px-3 py-2 text-right">vl_total</th>
               </tr>
             </thead>
@@ -1474,10 +1489,10 @@ function DashboardTab() {
                   <td className="border px-3 py-2">{r.dt_contabil || ""}</td>
                   <td className="border px-3 py-2">{r.grupo || ""}</td>
                   <td className="border px-3 py-2">{r.descricao || ""}</td>
-                  <td className="border px-3 py-2 text-right">{totalQtd}</td>
-                  <td className="border px-3 py-2 text-right">{fmtMoney(totalInformado)}</td>
-                  <td className="border px-3 py-2 text-right">{fmtMoney(totalCalculado)}</td>
-                  <td className="border px-3 py-2 text-right">{fmtMoney(totalVlTotal)}</td>
+                  <td className="border px-3 py-2 text-right">{r.qtd}</td>
+                  <td className="border px-3 py-2 text-right">{fmtMoney(r.vl_servico_informado)}</td>
+                  <td className="border px-3 py-2 text-right">{fmtMoney(r.vl_servico_calculado)}</td>
+                  <td className="border px-3 py-2 text-right">{fmtMoney(r.vl_total)}</td>
                 </tr>
               ))}
 
@@ -1485,6 +1500,10 @@ function DashboardTab() {
                 <td className="border px-3 py-2" colSpan={6}>
                   Total
                 </td>
+                <td className="border px-3 py-2" colSpan={3}>Total</td>
+                <td className="border px-3 py-2 text-right">{totalQtd}</td>
+                <td className="border px-3 py-2 text-right">{fmtMoney(totalInformado)}</td>
+                <td className="border px-3 py-2 text-right">{fmtMoney(totalCalculado)}</td>
                 <td className="border px-3 py-2 text-right">{fmtMoney(totalVlTotal)}</td>
               </tr>
             </tbody>
