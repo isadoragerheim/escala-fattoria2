@@ -1262,8 +1262,8 @@ type DashboardMeta = {
   minDate: string;
   maxDate: string;
   groups: string[];
-  items: string[]; // todos os itens (fallback quando grupo = "Tudo")
-  itemsByGroup: Record<string, string[]>; // novo
+  items: string[];
+  itemsByGroup: Record<string, string[]>;
 };
 
 type DashboardRow = {
@@ -1284,14 +1284,13 @@ function DashboardTab() {
   const [start, setStart] = useState<string>("");
   const [end, setEnd] = useState<string>("");
 
+  const [grupo, setGrupo] = useState<string>("Tudo");
+  const [descricao, setDescricao] = useState<string>("Tudo");
   const itemOptions = useMemo(() => {
   if (!meta) return [];
   if (grupo === "Tudo") return meta.items || [];
   return meta.itemsByGroup?.[grupo] || [];
   }, [meta, grupo]);
-
-  const [grupo, setGrupo] = useState<string>("Tudo");
-  const [descricao, setDescricao] = useState<string>("Tudo");
 
   const [rows, setRows] = useState<DashboardRow[]>([]);
   const [totalVlTotal, setTotalVlTotal] = useState<number>(0);
@@ -1316,6 +1315,10 @@ function DashboardTab() {
         maxDate: String(data.maxDate || ""),
         groups: Array.isArray(data.groups) ? data.groups : [],
         items: Array.isArray(data.items) ? data.items : [],
+        itemsByGroup:
+          data.itemsByGroup && typeof data.itemsByGroup === "object"
+            ? data.itemsByGroup
+            : {},
       };
 
       setMeta(m);
