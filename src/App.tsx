@@ -1259,19 +1259,20 @@ function SolverUI({ state, availability, onRefresh, weekId }: SolverUIProps) {
 // ======== DASHBOARD ===========
 
 type DashboardMeta = {
-  minDate: string; // YYYY-MM-DD
-  maxDate: string; // YYYY-MM-DD
+  minDate: string;
+  maxDate: string;
   groups: string[];
-  items: string[];
+  items: string[]; // todos os itens (fallback quando grupo = "Tudo")
+  itemsByGroup: Record<string, string[]>; // novo
 };
 
 type DashboardRow = {
-  dt_contabil: string; // YYYY-MM-DD
+  dt_contabil: string;
   grupo: string;
   descricao: string;
+  qtd: number; // novo
   vl_servico_informado: number;
   vl_servico_calculado: number;
-  comissao_paga_real_pago: string; // "12.34%"
   vl_total: number;
 };
 
@@ -1283,11 +1284,20 @@ function DashboardTab() {
   const [start, setStart] = useState<string>("");
   const [end, setEnd] = useState<string>("");
 
+  const itemOptions = useMemo(() => {
+  if (!meta) return [];
+  if (grupo === "Tudo") return meta.items || [];
+  return meta.itemsByGroup?.[grupo] || [];
+  }, [meta, grupo]);
+
   const [grupo, setGrupo] = useState<string>("Tudo");
   const [descricao, setDescricao] = useState<string>("Tudo");
 
   const [rows, setRows] = useState<DashboardRow[]>([]);
   const [totalVlTotal, setTotalVlTotal] = useState<number>(0);
+  const [totalInformado, setTotalInformado] = useState<number>(0);
+  const [totalCalculado, setTotalCalculado] = useState<number>(0);
+  const [totalQtd, setTotalQtd] = useState<number>(0);
 
   const fmtMoney = (n: number) =>
     new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(Number(n || 0));
@@ -1338,6 +1348,9 @@ function DashboardTab() {
 
       setRows(Array.isArray(data.rows) ? (data.rows as DashboardRow[]) : []);
       setTotalVlTotal(Number(data.totalVlTotal || 0));
+      setTotalInformado(Number(data.totalInformado || 0));
+      setTotalCalculado(Number(data.totalCalculado || 0));
+      setTotalQtd(Number(data.totalQtd || 0));
     } catch (err) {
       console.error(err);
     } finally {
@@ -1404,8 +1417,15 @@ function DashboardTab() {
             <select
               className="input w-full"
               value={grupo}
-              onChange={(e) => setGrupo(e.target.value)}
-              disabled={loadingMeta}
+              onChange={(e) => {
+                const g = e.target.value;
+                setGrupo(g);
+                setDescricao((curr) => {
+                  if (curr === "Tudo") return "Tudo";
+                  const opts = g === "Tudo" ? (meta?.items || []) : (meta?.itemsByGroup?.[g] || []);
+                  return opts.includes(curr) ? curr : "Tudo";
+                });
+              }}
             >
               <option value="Tudo">Tudo</option>
               {(meta?.groups || []).map((g) => (
@@ -1425,10 +1445,8 @@ function DashboardTab() {
               disabled={loadingMeta}
             >
               <option value="Tudo">Tudo</option>
-              {(meta?.items || []).map((it) => (
-                <option key={it} value={it}>
-                  {it}
-                </option>
+              {itemOptions.map((it) => (
+                <option key={it} value={it}>{it}</option>
               ))}
             </select>
           </div>
@@ -1453,10 +1471,10 @@ function DashboardTab() {
                   <td className="border px-3 py-2">{r.dt_contabil || ""}</td>
                   <td className="border px-3 py-2">{r.grupo || ""}</td>
                   <td className="border px-3 py-2">{r.descricao || ""}</td>
-                  <td className="border px-3 py-2 text-right">{fmtMoney(r.vl_servico_informado)}</td>
-                  <td className="border px-3 py-2 text-right">{fmtMoney(r.vl_servico_calculado)}</td>
-                  <td className="border px-3 py-2 text-right">{r.comissao_paga_real_pago || "0.00%"}</td>
-                  <td className="border px-3 py-2 text-right">{fmtMoney(r.vl_total)}</td>
+                  <td className="border px-3 py-2 text-right">{totalQtd}</td>
+                  <td className="border px-3 py-2 text-right">{fmtMoney(totalInformado)}</td>
+                  <td className="border px-3 py-2 text-right">{fmtMoney(totalCalculado)}</td>
+                  <td className="border px-3 py-2 text-right">{fmtMoney(totalVlTotal)}</td>
                 </tr>
               ))}
 
