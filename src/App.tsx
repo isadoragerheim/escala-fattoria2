@@ -1369,8 +1369,11 @@ function GraphsTab() {
             <LineChart data={monthly}>
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis dataKey="label" tickFormatter={fmtMonthLabel} />
-              <YAxis tickFormatter={(v) => fmtMoney(Number(v)).replace("R$", "").trim()} />
-              <Tooltip formatter={(v: any) => fmtMoney(Number(v))} labelFormatter={(l) => fmtMonthLabel(String(l))} />
+              <YAxis tickFormatter={(v: string | number) => fmtMoney(Number(v)).replace("R$", "").trim()} />
+              <Tooltip
+                formatter={(v: string | number) => fmtMoney(Number(v))}
+                labelFormatter={(l: string | number) => fmtMonthLabel(String(l))}
+              />
               <Line type="monotone" dataKey="faturamento" dot={false} />
             </LineChart>
           </ResponsiveContainer>
@@ -1384,8 +1387,11 @@ function GraphsTab() {
             <LineChart data={weekly}>
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis dataKey="label" tickFormatter={fmtWeekLabel} />
-              <YAxis tickFormatter={(v) => fmtMoney(Number(v)).replace("R$", "").trim()} />
-              <Tooltip formatter={(v: any) => fmtMoney(Number(v))} labelFormatter={(l) => fmtWeekLabel(String(l))} />
+              <YAxis tickFormatter={(v: string | number) => fmtMoney(Number(v)).replace("R$", "").trim()} />
+              <Tooltip
+                formatter={(v: string | number) => fmtMoney(Number(v))}
+                labelFormatter={(l: string | number) => fmtWeekLabel(String(l))}
+              />
               <Line type="monotone" dataKey="faturamento" dot={false} />
             </LineChart>
           </ResponsiveContainer>
@@ -1399,10 +1405,10 @@ function GraphsTab() {
             <LineChart data={weeklyByWeekday}>
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis dataKey="label" tickFormatter={fmtWeekLabel} />
-              <YAxis tickFormatter={(v) => fmtMoney(Number(v)).replace("R$", "").trim()} />
+              <YAxis tickFormatter={(v: string | number) => fmtMoney(Number(v)).replace("R$", "").trim()} />
               <Tooltip
-                formatter={(v: any) => fmtMoney(Number(v))}
-                labelFormatter={(l) => `Semana de ${fmtWeekLabel(String(l))}`}
+                formatter={(v: string | number) => fmtMoney(Number(v))}
+                labelFormatter={(l: string | number) => `Semana de ${fmtWeekLabel(String(l))}`}
               />
               <Legend />
               <Line type="monotone" dataKey="domingo" dot={false} />
