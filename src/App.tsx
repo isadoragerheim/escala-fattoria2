@@ -1478,6 +1478,7 @@ function DashboardTab() {
                 <th className="border px-3 py-2 text-left">dt_contabil</th>
                 <th className="border px-3 py-2 text-left">grupo</th>
                 <th className="border px-3 py-2 text-left">descricao</th>
+                <th className="border px-3 py-2 text-right">qtd</th>
                 <th className="border px-3 py-2 text-right">vl_servico_informado</th>
                 <th className="border px-3 py-2 text-right">vl_servico_calculado</th>
                 <th className="border px-3 py-2 text-right">vl_total</th>
@@ -1497,9 +1498,6 @@ function DashboardTab() {
               ))}
 
               <tr className="bg-gray-50 font-semibold">
-                
-                  Total
-                </td>
                 <td className="border px-3 py-2" colSpan={3}>Total</td>
                 <td className="border px-3 py-2 text-right">{totalQtd}</td>
                 <td className="border px-3 py-2 text-right">{fmtMoney(totalInformado)}</td>
