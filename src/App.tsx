@@ -1,3 +1,17 @@
+
+import { LineChart as LineChartIcon } from "lucide-react";
+import {
+  ResponsiveContainer,
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+} from "recharts";
+
+
 import React, { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import { Trash2, Share2, Copy, BarChart3 } from "lucide-react";
@@ -135,7 +149,7 @@ export default function App() {
   const [mode, setMode] = useState<Mode>("admin");
 
   const [activeTab, setActiveTab] = useState<
-  "disponibilidade" | "escalar" | "presenca" | "estoque" | "comissao" | "dashboard"
+  "disponibilidade" | "escalar" | "presenca" | "estoque" | "comissao" | "dashboard" | "graficos"
   >("disponibilidade");
 
   const [selectedStaffId, setSelectedStaffId] = useState<string>("");
@@ -314,6 +328,15 @@ export default function App() {
                 label="Dashboard"
               />
             )}
+            {/* 7) gráficos – só admin */}
+            {!isColab && (
+              <TabButton
+                label="Gráficos"
+                active={activeTab === "graficos"}
+                onClick={() => setActiveTab("graficos")}
+                icon={<LineChartIcon className="w-4 h-4" />}
+              />
+            )}
           
             </div>
         </header>
@@ -374,6 +397,10 @@ export default function App() {
             <DashboardTab />
           </Card>
         )}
+        {/* Gráficos – apenas admin */}
+        {!isColab && {activeTab === "graficos" && <GraphsTab />}
+      
+      
 
         
 
@@ -1275,6 +1302,129 @@ type DashboardRow = {
   vl_servico_calculado: number;
   vl_total: number;
 };
+
+type GraphPoint = { label: string; faturamento: number };
+type GraphWeekdayPoint = {
+  label: string;
+  domingo: number; segunda: number; terca: number; quarta: number; quinta: number; sexta: number; sabado: number;
+};
+
+function GraphsTab() {
+  const [monthly, setMonthly] = useState<GraphPoint[]>([]);
+  const [weekly, setWeekly] = useState<GraphPoint[]>([]);
+  const [weeklyByWeekday, setWeeklyByWeekday] = useState<GraphWeekdayPoint[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  const fmtMoney = (n: number) =>
+    new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(Number(n || 0));
+
+  const fmtMonthLabel = (s: string) => {
+    // s = "YYYY-MM"
+    const [y, m] = s.split("-");
+    const d = new Date(Number(y), Number(m) - 1, 1);
+    return d.toLocaleDateString("pt-BR", { month: "short", year: "2-digit" });
+  };
+
+  const fmtWeekLabel = (s: string) => {
+    // s = "YYYY-MM-DD" (segunda)
+    const [y, m, d] = s.split("-");
+    return `${d}/${m}`;
+  };
+
+  const load = async () => {
+    if (!SYNC_ENDPOINT) return;
+    setLoading(true);
+    try {
+      const url = `${SYNC_ENDPOINT}?action=dashboard_graphs`;
+      const resp = await fetch(url);
+      const data = await resp.json();
+      if (!data?.ok) throw new Error(data?.error || "Resposta inválida (graphs).");
+
+      setMonthly(Array.isArray(data.monthly) ? data.monthly : []);
+      setWeekly(Array.isArray(data.weekly) ? data.weekly : []);
+      setWeeklyByWeekday(Array.isArray(data.weeklyByWeekday) ? data.weeklyByWeekday : []);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  if (!SYNC_ENDPOINT) {
+    return <div className="text-sm text-red-600">Nenhum endpoint de sincronização configurado.</div>;
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="border rounded-xl p-4 bg-white space-y-2">
+        <div className="flex items-center justify-between">
+          <h3 className="font-semibold text-base">Gráfico 1 — Faturamento mensal (últimos 12 meses)</h3>
+          <button className="btn btn-ghost text-sm" onClick={load} disabled={loading}>
+            {loading ? "Carregando..." : "Recarregar"}
+          </button>
+        </div>
+        <div style={{ width: "100%", height: 280 }}>
+          <ResponsiveContainer>
+            <LineChart data={monthly}>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis dataKey="label" tickFormatter={fmtMonthLabel} />
+              <YAxis tickFormatter={(v) => fmtMoney(Number(v)).replace("R$", "").trim()} />
+              <Tooltip formatter={(v: any) => fmtMoney(Number(v))} labelFormatter={(l) => fmtMonthLabel(String(l))} />
+              <Line type="monotone" dataKey="faturamento" dot={false} />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+
+      <div className="border rounded-xl p-4 bg-white space-y-2">
+        <h3 className="font-semibold text-base">Gráfico 2 — Faturamento semanal (últimos 4 meses)</h3>
+        <div style={{ width: "100%", height: 280 }}>
+          <ResponsiveContainer>
+            <LineChart data={weekly}>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis dataKey="label" tickFormatter={fmtWeekLabel} />
+              <YAxis tickFormatter={(v) => fmtMoney(Number(v)).replace("R$", "").trim()} />
+              <Tooltip formatter={(v: any) => fmtMoney(Number(v))} labelFormatter={(l) => fmtWeekLabel(String(l))} />
+              <Line type="monotone" dataKey="faturamento" dot={false} />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+
+      <div className="border rounded-xl p-4 bg-white space-y-2">
+        <h3 className="font-semibold text-base">Gráfico 3 — Faturamento por dia da semana (últimos 4 meses)</h3>
+        <div style={{ width: "100%", height: 320 }}>
+          <ResponsiveContainer>
+            <LineChart data={weeklyByWeekday}>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis dataKey="label" tickFormatter={fmtWeekLabel} />
+              <YAxis tickFormatter={(v) => fmtMoney(Number(v)).replace("R$", "").trim()} />
+              <Tooltip
+                formatter={(v: any) => fmtMoney(Number(v))}
+                labelFormatter={(l) => `Semana de ${fmtWeekLabel(String(l))}`}
+              />
+              <Legend />
+              <Line type="monotone" dataKey="domingo" dot={false} />
+              <Line type="monotone" dataKey="segunda" dot={false} />
+              <Line type="monotone" dataKey="terca" dot={false} />
+              <Line type="monotone" dataKey="quarta" dot={false} />
+              <Line type="monotone" dataKey="quinta" dot={false} />
+              <Line type="monotone" dataKey="sexta" dot={false} />
+              <Line type="monotone" dataKey="sabado" dot={false} />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
 
 function DashboardTab() {
   const [meta, setMeta] = useState<DashboardMeta | null>(null);
